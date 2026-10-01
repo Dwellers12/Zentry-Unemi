@@ -1,0 +1,23 @@
+# Entorno virtual
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Django
+Zentry/db.sqlite3
+Zentry/media/
+*.log
+
+# Variables de entorno
+.env
+
+# Resultados de entrenamiento de YOLO
+runs/
+
+# Editor / sistema
+.vscode/
+.idea/
+.DS_Store

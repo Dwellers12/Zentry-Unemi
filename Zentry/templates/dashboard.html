@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zentry - Verificación de Estacionamiento</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; color: #1a1a2e; }
+        h1 { color: #1a1a2e; }
+        .camara { margin: 20px 0; }
+        #camara-container { position: relative; display: inline-block; max-width: 100%; }
+        #stream { width: 1100px; max-width: 100%; border: 3px solid #1a1a2e; border-radius: 8px; display: block; }
+        #overlay { position: absolute; top: 0; left: 0; pointer-events: none; touch-action: none; }
+        .controles { margin: 12px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        button { padding: 9px 16px; font-size: 14px; background: #1a1a2e; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+        button:hover { background: #16213e; }
+        button.activo { background: #c0392b; }
+        button.peligro { background: #c0392b; }
+        button.secundario { background: #fff; color: #1a1a2e; border: 1px solid #1a1a2e; }
+        button:disabled, button.secundario:disabled { background: #ddd; color: #888; border-color: #ddd; cursor: default; }
+        select { padding: 8px 12px; font-size: 14px; border-radius: 6px; border: 1px solid #999; }
+        label { font-size: 14px; }
+        #barra-edicion { display: none; background: #fff8e1; border: 1px solid #f1c40f; border-radius: 8px; padding: 10px; }
+        body.editando #barra-edicion { display: flex; }
+        body.editando .solo-normal { display: none; }
+        #mensaje { min-height: 20px; font-size: 14px; color: #555; margin: 6px 0; }
+        #mensaje.error { color: #c0392b; }
+        #resultado { margin: 20px 0; font-size: 16px; }
+        .plaza-item { padding: 4px 0; }
+        .ocupada { color: #c0392b; font-weight: bold; }
+        .libre { color: #27ae60; font-weight: bold; }
+        .placa { font-family: monospace; font-size: 16px; background: #fff; border: 1px solid #1a1a2e; border-radius: 4px; padding: 1px 6px; }
+        #imagen-resultado { max-width: 100%; border: 2px solid #0f3460; border-radius: 8px; margin-top: 10px; }
+        .hint { color: #555; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>Zentry - Verificación de Estacionamiento</h1>
+
+    <div class="controles">
+        {% if modo_ejemplo %}
+        <label for="selector-imagen">Imagen:</label>
+        <select id="selector-imagen"></select>
+        {% endif %}
+        <label class="solo-normal"><input type="checkbox" id="chk-auto" checked> Verificación automática</label>
+    </div>
+
+    <div class="camara">
+        <div id="camara-container">
+            <img id="stream" src="{{ camara_url }}" alt="Vista del estacionamiento">
+            <canvas id="overlay"></canvas>
+        </div>
+    </div>
+
+    <div class="controles">
+        <button id="btn-verificar" class="solo-normal">Verificar ahora</button>
+        <button id="btn-editar">Modo edición</button>
+    </div>
+
+    <div id="barra-edicion" class="controles">
+        <button id="btn-detectar">Detectar automáticamente</button>
+        <button id="btn-nueva" class="secundario">Nueva plaza</button>
+        <button id="btn-cerrar" class="secundario" disabled>Cerrar plaza</button>
+        <button id="btn-renombrar" class="secundario" disabled>Renombrar</button>
+        <button id="btn-eliminar" class="peligro" disabled>Eliminar</button>
+        <button id="btn-guardar">Guardar</button>
+        <button id="btn-descartar" class="secundario">Descartar cambios</button>
+    </div>
+    <p class="hint" id="ayuda"></p>
+    <div id="mensaje"></div>
+
+    <div id="resultado"></div>
+    <details id="detalle-imagen" hidden>
+        <summary>Imagen procesada (evidencia)</summary>
+        <img id="imagen-resultado" alt="Resultado del procesamiento">
+    </details>
+
+    <script>
+        const MODO_EJEMPLO = {{ modo_ejemplo|yesno:"true,false" }};
+        const AYUDA_NORMAL = 'Las plazas se detectan automáticamente la primera vez. Usa "Modo edición" para corregirlas.';
+        const AYUDA_EDICION = 'Clic en una plaza para seleccionarla y arrástrala para moverla. Arrastra sus vértices para ajustarla. ' +
+            'Doble clic para renombrar. Supr para eliminar. Esc para deseleccionar.';
+        const AYUDA_NUEVA = 'Haz clic en la imagen para marcar los vértices. Cierra la plaza con "Cerrar plaza", Enter o clic sobre el primer vértice. Esc cancela.';
+
+        const stream = document.getElementById('stream');
+        const overlay = document.getElementById('overlay');
+        const ctx = overlay.getContext('2d');
+        const resultado = document.getElementById('resultado');
+        const imagenResultado = document.getElementById('imagen-resultado');
+        const detalleImagen = document.getElementById('detalle-imagen');
+        const selectorImagen = document.getElementById('selector-imagen');
+        const chkAuto = document.getElementById('chk-auto');
+        const ayuda = document.getElementById('ayuda');
+        const mensaje = document.getElementById('mensaje');
+        const btn = (id) => document.getElementById(id);
+
+        let plazas = [];        // plazas de la cámara/imagen actual
+        let estado = {};        // id -> resultado de la última verificación
+        let editando = false;
+        let seleccion = -1;     // índice de la plaza seleccionada
+        let nueva = null;       // vértices de la plaza que se está dibujando
+        let arrastre = null;    // {tipo: 'vertice' | 'plaza', vertice, inicio, original}
+        let hayCambios = false;
+        let procesando = false;
+        let intervalo = null;
+
+        const imagenActual = () => (MODO_EJEMPLO ? selectorImagen.value : null);
+
+        function mostrarMensaje(texto, esError) {
+            mensaje.textContent = texto || '';
+            mensaje.classList.toggle('error', !!esError);
+        }
+
+        // ---------------------------------------------------------------
+        // Canvas: coordenadas en píxeles de la imagen original
+        // ---------------------------------------------------------------
+        function ajustarCanvas() {
+            const w = stream.naturalWidth, h = stream.naturalHeight;
+            if (!w || !h) return;
+            if (overlay.width !== w || overlay.height !== h) {
+                overlay.width = w;
+                overlay.height = h;
+            }
+            const rect = stream.getBoundingClientRect();
+            overlay.style.width = rect.width + 'px';
+            overlay.style.height = rect.height + 'px';
+            dibujar();
+        }
+        stream.addEventListener('load', ajustarCanvas);
+        new ResizeObserver(ajustarCanvas).observe(stream);
+
+        // Píxeles de imagen por cada píxel de pantalla.
+        function escala() {
+            const w = overlay.getBoundingClientRect().width;
+            return w ? overlay.width / w : 1;
+        }
+
+        function puntoImagen(e) {
+            const r = overlay.getBoundingClientRect();
+            const x = (e.clientX - r.left) * overlay.width / r.width;
+            const y = (e.clientY - r.top) * overlay.height / r.height;
+            return [Math.max(0, Math.min(overlay.width - 1, x)), Math.max(0, Math.min(overlay.height - 1, y))];
+        }
+
+        const distancia = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+        function dentroDe(pt, poligono) {
+            let dentro = false;
+            for (let i = 0, j = poligono.length - 1; i < poligono.length; j = i++) {
+                const [xi, yi] = poligono[i], [xj, yj] = poligono[j];
+                if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) {
+                    dentro = !dentro;
+                }
+            }
+            return dentro;
+        }
+
+        function plazaEn(pt) {
+            for (let i = plazas.length - 1; i >= 0; i--) {
+                if (dentroDe(pt, plazas[i].poligono)) return i;
+            }
+            return -1;
+        }
+
+        function verticeEn(pt) {
+            const radio = 10 * escala();
+            // Primero los vértices de la plaza seleccionada.
+            const orden = seleccion >= 0 ? [seleccion, ...plazas.keys()] : [...plazas.keys()];
+            for (const i of orden) {
+                const v = plazas[i].poligono.findIndex(p => distancia(p, pt) <= radio);
+                if (v >= 0) return { plaza: i, vertice: v };
+            }
+            return null;
+        }
+
+        // ---------------------------------------------------------------
+        // Dibujo
+        // ---------------------------------------------------------------
+        function trazar(puntos, cerrar) {
+            ctx.beginPath();
+            ctx.moveTo(puntos[0][0], puntos[0][1]);
+            for (let i = 1; i < puntos.length; i++) ctx.lineTo(puntos[i][0], puntos[i][1]);
+            if (cerrar) ctx.closePath();
+        }
+
+        function etiqueta(lineas, x, y, color) {
+            const k = escala();
+            ctx.font = `bold ${13 * k}px Arial`;
+            const alto = 16 * k, pad = 4 * k;
+            const ancho = Math.max(...lineas.map(l => ctx.measureText(l).width)) + 2 * pad;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(x - ancho / 2, y, ancho, alto * lineas.length + pad);
+            ctx.fillStyle = color;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            lineas.forEach((l, i) => ctx.fillText(l, x, y + pad / 2 + i * alto));
+        }
+
+        function colorPlaza(i) {
+            if (editando) return i === seleccion ? '#f1c40f' : '#3498db';
+            const e = estado[plazas[i].id];
+            if (!e) return '#3498db';
+            return e.ocupada ? '#e74c3c' : '#2ecc71';
+        }
+
+        function dibujar() {
+            const k = escala();
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
+            ctx.lineJoin = 'round';
+
+            plazas.forEach((plaza, i) => {
+                const color = colorPlaza(i);
+                trazar(plaza.poligono, true);
+                ctx.fillStyle = color + (editando && i === seleccion ? '55' : '22');
+                ctx.fill();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2.5 * k;
+                ctx.stroke();
+
+                const xs = plaza.poligono.map(p => p[0]);
+                const ys = plaza.poligono.map(p => p[1]);
+                const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+                const lineas = [plaza.id];
+                const e = estado[plaza.id];
+                if (!editando && e) {
+                    lineas[0] += e.ocupada ? ' · OCUPADA' : ' · LIBRE';
+                    if (e.ocupada) lineas.push(e.placa || 'placa no leída');
+                }
+                etiqueta(lineas, cx, Math.max(...ys) + 6 * k, color);
+
+                if (editando && i === seleccion) {
+                    plaza.poligono.forEach(p => {
+                        ctx.beginPath();
+                        ctx.arc(p[0], p[1], 6 * k, 0, 2 * Math.PI);
+                        ctx.fillStyle = '#fff';
+                        ctx.fill();
+                        ctx.lineWidth = 2 * k;
+                        ctx.strokeStyle = '#1a1a2e';
+                        ctx.stroke();
+                    });
+                }
+            });
+
+            if (nueva && nueva.length) {
+                trazar(nueva, false);
+                ctx.strokeStyle = '#f39c12';
+                ctx.lineWidth = 2.5 * k;
+                ctx.stroke();
+                nueva.forEach((p, i) => {
+                    ctx.beginPath();
+                    ctx.arc(p[0], p[1], (i === 0 ? 7 : 5) * k, 0, 2 * Math.PI);
+                    ctx.fillStyle = i === 0 ? '#f39c12' : '#fff';
+                    ctx.fill();
+                });
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Edición con el ratón / táctil
+        // ---------------------------------------------------------------
+        overlay.addEventListener('pointerdown', (e) => {
+            if (!editando) return;
+            const pt = puntoImagen(e);
+
+            if (nueva) {
+                if (nueva.length >= 3 && distancia(pt, nueva[0]) <= 10 * escala()) {
+                    cerrarNueva();
+                } else {
+                    nueva.push(pt.map(Math.round));
+                    btn('btn-cerrar').disabled = nueva.length < 3;
+                    dibujar();
+                }
+                return;
+            }
+
+            const v = verticeEn(pt);
+            if (v) {
+                seleccion = v.plaza;
+                arrastre = { tipo: 'vertice', vertice: v.vertice };
+            } else {
+                seleccion = plazaEn(pt);
+                arrastre = seleccion >= 0
+                    ? { tipo: 'plaza', inicio: pt, original: plazas[seleccion].poligono.map(p => [...p]) }
+                    : null;
+            }
+            if (arrastre) overlay.setPointerCapture(e.pointerId);
+            actualizarBotones();
+            dibujar();
+        });
+
+        overlay.addEventListener('pointermove', (e) => {
+            if (!editando) return;
+            const pt = puntoImagen(e);
+
+            if (!arrastre) {
+                overlay.style.cursor = nueva ? 'crosshair'
+                    : verticeEn(pt) ? 'move'
+                    : plazaEn(pt) >= 0 ? 'grab' : 'default';
+                return;
+            }
+
+            const plaza = plazas[seleccion];
+            if (arrastre.tipo === 'vertice') {
+                plaza.poligono[arrastre.vertice] = pt.map(Math.round);
+            } else {
+                const dx = pt[0] - arrastre.inicio[0], dy = pt[1] - arrastre.inicio[1];
+                plaza.poligono = arrastre.original.map(([x, y]) => [
+                    Math.round(Math.max(0, Math.min(overlay.width - 1, x + dx))),
+                    Math.round(Math.max(0, Math.min(overlay.height - 1, y + dy))),
+                ]);
+            }
+            hayCambios = true;
+            dibujar();
+        });
+
+        overlay.addEventListener('pointerup', () => { arrastre = null; });
+        overlay.addEventListener('pointercancel', () => { arrastre = null; });
+
+        overlay.addEventListener('dblclick', (e) => {
+            if (!editando || nueva) return;
+            const i = plazaEn(puntoImagen(e));
+            if (i >= 0) renombrar(i);
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!editando || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+            if ((e.key === 'Delete' || e.key === 'Backspace') && seleccion >= 0 && !nueva) {
+                e.preventDefault();
+                eliminar();
+            } else if (e.key === 'Escape') {
+                if (nueva) cancelarNueva(); else { seleccion = -1; actualizarBotones(); dibujar(); }
+            } else if (e.key === 'Enter' && nueva) {
+                cerrarNueva();
+            }
+        });
+
+        function siguienteId() {
+            const numeros = plazas.map(p => parseInt((/^P(\d+)$/.exec(p.id) || [])[1], 10)).filter(n => !isNaN(n));
+            return 'P' + (numeros.length ? Math.max(...numeros) + 1 : 1);
+        }
+
+        function cerrarNueva() {
+            if (!nueva || nueva.length < 3) {
+                mostrarMensaje('Necesitas al menos 3 vértices para cerrar una plaza.', true);
+                return;
+            }
+            plazas.push({ id: siguienteId(), poligono: nueva });
+            seleccion = plazas.length - 1;
+            nueva = null;
+            hayCambios = true;
+            ayuda.textContent = AYUDA_EDICION;
+            mostrarMensaje(`Plaza ${plazas[seleccion].id} creada. Doble clic para renombrarla.`);
+            actualizarBotones();
+            dibujar();
+        }
+
+        function cancelarNueva() {
+            nueva = null;
+            ayuda.textContent = AYUDA_EDICION;
+            actualizarBotones();
+            dibujar();
+        }
+
+        function renombrar(i) {
+            const nombre = (prompt('Nuevo nombre de la plaza:', plazas[i].id) || '').trim();
+            if (!nombre || nombre === plazas[i].id) return;
+            if (plazas.some((p, j) => j !== i && p.id === nombre)) {
+                mostrarMensaje(`Ya existe una plaza llamada ${nombre}.`, true);
+                return;
+            }
+            plazas[i].id = nombre;
+            hayCambios = true;
+            dibujar();
+        }
+
+        function eliminar() {
+            if (seleccion < 0) return;
+            const id = plazas[seleccion].id;
+            plazas.splice(seleccion, 1);
+            seleccion = -1;
+            hayCambios = true;
+            mostrarMensaje(`Plaza ${id} eliminada. Pulsa "Guardar" para confirmar.`);
+            actualizarBotones();
+            dibujar();
+        }
+
+        function actualizarBotones() {
+            const haySeleccion = seleccion >= 0 && !nueva;
+            btn('btn-renombrar').disabled = !haySeleccion;
+            btn('btn-eliminar').disabled = !haySeleccion;
+            btn('btn-cerrar').disabled = !nueva || nueva.length < 3;
+            btn('btn-nueva').disabled = !!nueva;
+        }
+
+        // ---------------------------------------------------------------
+        // Servidor
+        // ---------------------------------------------------------------
+        async function cargarPlazas() {
+            try {
+                const params = MODO_EJEMPLO ? '?imagen=' + encodeURIComponent(imagenActual()) : '';
+                const resp = await fetch('/api/plazas/' + params);
+                const data = await resp.json();
+                plazas = data.plazas || [];
+            } catch (e) {
+                plazas = [];
+            }
+            seleccion = -1;
+            hayCambios = false;
+            dibujar();
+        }
+
+        async function cargarImagenes() {
+            if (!MODO_EJEMPLO) return;
+            try {
+                const resp = await fetch('/api/imagenes/');
+                const data = await resp.json();
+                selectorImagen.innerHTML = '';
+                (data.imagenes || []).forEach(nombre => {
+                    const opt = document.createElement('option');
+                    opt.value = nombre;
+                    opt.textContent = nombre;
+                    selectorImagen.appendChild(opt);
+                });
+                if (selectorImagen.value) stream.src = '/static/' + selectorImagen.value;
+            } catch (e) {}
+        }
+
+        async function verificar() {
+            if (procesando || editando) return;
+            procesando = true;
+            const imagen = imagenActual();
+            try {
+                const resp = await fetch('/api/verificar/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imagen: imagen }),
+                });
+                const data = await resp.json();
+                // Si mientras tanto se cambió de imagen o se entró a editar, se ignora.
+                if (imagen !== imagenActual() || editando) return;
+
+                if (data.error) {
+                    resultado.textContent = 'Error: ' + data.error;
+                    return;
+                }
+                if (data.plazas_detectadas) {
+                    await cargarPlazas();
+                    mostrarMensaje(`Se detectaron automáticamente ${data.plazas.length} plazas.`);
+                }
+
+                estado = {};
+                data.plazas.forEach(p => { estado[p.id] = p; });
+                mostrarResultado(data.plazas);
+                dibujar();
+
+                if (data.imagen) {
+                    imagenResultado.src = 'data:image/jpeg;base64,' + data.imagen;
+                    detalleImagen.hidden = false;
+                }
+            } catch (err) {
+                resultado.textContent = 'Error de conexión: ' + err.message;
+            } finally {
+                procesando = false;
+            }
+        }
+
+        function mostrarResultado(lista) {
+            if (!lista.length) {
+                resultado.textContent = 'No se encontraron plazas. Usa "Modo edición" para dibujarlas.';
+                return;
+            }
+            const libres = lista.filter(p => !p.ocupada).length;
+            let html = `<h3>Estado de las plazas (${libres} libres de ${lista.length})</h3>`;
+            lista.forEach(p => {
+                const clase = p.ocupada ? 'ocupada' : 'libre';
+                let detalle = '';
+                if (p.ocupada) {
+                    detalle = p.placa
+                        ? ` · Placa <span class="placa">${p.placa}</span>`
+                        : ' · placa no leída';
+                }
+                html += `<div class="plaza-item">${p.id}: <span class="${clase}">${p.ocupada ? 'OCUPADA' : 'LIBRE'}</span>${detalle}</div>`;
+            });
+            resultado.innerHTML = html;
+        }
+
+        function iniciarPolling() {
+            if (intervalo) clearInterval(intervalo);
+            intervalo = null;
+            if (chkAuto.checked && !editando) {
+                intervalo = setInterval(verificar, 2000);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Botones
+        // ---------------------------------------------------------------
+        function salirSinGuardarOk() {
+            return !hayCambios || confirm('Hay cambios sin guardar en las plazas. ¿Descartarlos?');
+        }
+
+        async function cambiarModoEdicion(activar) {
+            if (!activar && !salirSinGuardarOk()) return;
+            editando = activar;
+            document.body.classList.toggle('editando', editando);
+            btn('btn-editar').classList.toggle('activo', editando);
+            btn('btn-editar').textContent = editando ? 'Salir de edición' : 'Modo edición';
+            overlay.style.pointerEvents = editando ? 'auto' : 'none';
+            overlay.style.cursor = 'default';
+            nueva = null;
+            seleccion = -1;
+            ayuda.textContent = editando ? AYUDA_EDICION : AYUDA_NORMAL;
+            mostrarMensaje('');
+            actualizarBotones();
+
+            if (!editando) {
+                await cargarPlazas();  // descarta lo no guardado
+                estado = {};
+                verificar();
+            }
+            iniciarPolling();
+            dibujar();
+        }
+
+        btn('btn-editar').addEventListener('click', () => cambiarModoEdicion(!editando));
+        btn('btn-verificar').addEventListener('click', verificar);
+        chkAuto.addEventListener('change', iniciarPolling);
+
+        btn('btn-nueva').addEventListener('click', () => {
+            nueva = [];
+            seleccion = -1;
+            ayuda.textContent = AYUDA_NUEVA;
+            actualizarBotones();
+            dibujar();
+        });
+        btn('btn-cerrar').addEventListener('click', cerrarNueva);
+        btn('btn-renombrar').addEventListener('click', () => { if (seleccion >= 0) renombrar(seleccion); });
+        btn('btn-eliminar').addEventListener('click', eliminar);
+
+        btn('btn-detectar').addEventListener('click', async () => {
+            if (plazas.length && !confirm('Se reemplazarán las plazas actuales por las detectadas. ¿Continuar?')) return;
+            const boton = btn('btn-detectar');
+            boton.disabled = true;
+            mostrarMensaje('Detectando plazas...');
+            try {
+                const resp = await fetch('/api/plazas/detectar/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imagen: imagenActual() }),
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    mostrarMensaje(data.error, true);
+                } else {
+                    plazas = data.plazas;
+                    seleccion = -1;
+                    hayCambios = true;
+                    mostrarMensaje(`Se detectaron ${plazas.length} plazas. Revísalas y pulsa "Guardar".`);
+                    actualizarBotones();
+                    dibujar();
+                }
+            } catch (err) {
+                mostrarMensaje('Error de conexión: ' + err.message, true);
+            } finally {
+                boton.disabled = false;
+            }
+        });
+
+        btn('btn-guardar').addEventListener('click', async () => {
+            if (nueva) {
+                mostrarMensaje('Termina o cancela (Esc) la plaza que estás dibujando antes de guardar.', true);
+                return;
+            }
+            try {
+                const resp = await fetch('/api/plazas/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imagen: imagenActual(), plazas: plazas }),
+                });
+                const data = await resp.json();
+                if (data.ok) {
+                    hayCambios = false;
+                    mostrarMensaje(`Plazas guardadas (${plazas.length}).`);
+                } else {
+                    mostrarMensaje('Error al guardar: ' + (data.error || 'desconocido'), true);
+                }
+            } catch (err) {
+                mostrarMensaje('Error de conexión: ' + err.message, true);
+            }
+        });
+
+        btn('btn-descartar').addEventListener('click', async () => {
+            if (!salirSinGuardarOk()) return;
+            nueva = null;
+            await cargarPlazas();
+            actualizarBotones();
+            mostrarMensaje('Cambios descartados.');
+        });
+
+        if (MODO_EJEMPLO) {
+            selectorImagen.addEventListener('change', async () => {
+                if (editando && hayCambios && !confirm('Hay cambios sin guardar en las plazas. ¿Descartarlos?')) {
+                    return;
+                }
+                stream.src = '/static/' + selectorImagen.value;
+                estado = {};
+                resultado.innerHTML = '';
+                detalleImagen.hidden = true;
+                nueva = null;
+                await cargarPlazas();
+                actualizarBotones();
+                verificar();
+            });
+        }
+
+        // ---------------------------------------------------------------
+        // Inicialización
+        // ---------------------------------------------------------------
+        (async () => {
+            ayuda.textContent = AYUDA_NORMAL;
+            await cargarImagenes();
+            await cargarPlazas();
+            verificar();
+            iniciarPolling();
+        })();
+    </script>
+</body>
+</html>
