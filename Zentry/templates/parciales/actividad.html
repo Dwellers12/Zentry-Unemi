@@ -1,0 +1,18 @@
+{% load zentry_tags %}
+{% for evento in actividad %}
+  {% with tipo=evento.tipo %}
+  {% if evento.alerta_id %}<a class="evento" href="{% url 'alertas:detalle' evento.alerta_id %}">{% else %}<div class="evento">{% endif %}
+    <span class="chip {% if tipo == 'resuelta' or tipo == 'automatica' or tipo == 'salida' %}verde{% elif tipo == 'creada' %}rojo{% else %}gris{% endif %}">
+      {% icono_evento tipo 16 %}
+    </span>
+    <span class="texto">
+      <strong>{{ evento|etiqueta_evento }} · {{ evento.plaza }}</strong>
+      <small>{{ evento.texto }}</small>
+    </span>
+    <time datetime="{{ evento.en|date:'c' }}">{{ evento.en|date:"H:i" }}</time>
+    {% if evento.alerta_id %}{% icono 'chevron-right' 14 'flecha' %}{% endif %}
+  {% if evento.alerta_id %}</a>{% else %}</div>{% endif %}
+  {% endwith %}
+{% empty %}
+  <p class="vacio">Todavía no hay actividad</p>
+{% endfor %}

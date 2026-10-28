@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% load zentry_tags %}
+
+{% block contenido %}
+<div class="encabezado">
+  <div>
+    <h2>Reportes del parqueadero</h2>
+    <p>Analiza las alertas y exporta tus resultados.</p>
+  </div>
+  {% if alertas %}
+    <a class="boton" href="{% url 'alertas:reportes_csv' %}?{{ request.GET.urlencode }}">{% icono 'download' 16 %}Exportar CSV</a>
+  {% else %}
+    <button class="boton" disabled>{% icono 'download' 16 %}Exportar CSV</button>
+  {% endif %}
+</div>
+
+<form method="get" class="filtros formulario" data-filtros-auto>
+  <label class="campo"><span>Desde</span><input type="date" name="desde" value="{{ filtros.desde }}"></label>
+  <label class="campo"><span>Hasta</span><input type="date" name="hasta" value="{{ filtros.hasta }}"></label>
+  <label class="campo"><span>Cámara</span>
+    <select name="camara" data-limpia="plaza">
+      <option value="">Todos</option>
+      {% for camara in camaras %}<option value="{{ camara.codigo }}" {% if filtros.camara == camara.codigo %}selected{% endif %}>{{ camara.nombre }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="campo"><span>Plaza</span>
+    <select name="plaza">
+      <option value="">Todos</option>
+      {% for plaza in plazas %}<option value="{{ plaza.nombre }}" {% if filtros.plaza == plaza.nombre %}selected{% endif %}>{{ plaza.nombre }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="campo"><span>Estado</span>
+    <select name="estado">
+      <option value="">Todos</option>
+      {% for valor, nombre in estados %}<option value="{{ valor }}" {% if filtros.estado == valor %}selected{% endif %}>{{ nombre }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="campo"><span>Resultado</span>
+    <select name="resultado">
+      <option value="">Todos</option>
+      {% for valor, nombre in resultados %}<option value="{{ valor }}" {% if filtros.resultado == valor %}selected{% endif %}>{{ nombre }}</option>{% endfor %}
+    </select>
+  </label>
+  <div class="botones">
+    <noscript><button class="boton-secundario">Filtrar</button></noscript>
+    {% if hay_filtros %}<a class="enlace" href="{% url 'alertas:reportes' %}">Limpiar filtros</a>{% endif %}
+  </div>
+  {% if error %}<p class="error-campo" role="alert">{{ error }}</p>{% endif %}
+</form>
+
+<section class="cifras">
+  <div class="kpi"><span class="chip azul">{% icono 'bell' 18 %}</span><p class="numero">{{ datos.total }}</p><p class="nombre">Alertas en el periodo</p></div>
+  <div class="kpi"><span class="chip verde">{% icono 'shield-check' 18 %}</span><p class="numero">{{ datos.resueltas }}</p><p class="nombre">Resueltas</p></div>
+  <div class="kpi"><span class="chip verde">{% icono 'check-check' 18 %}</span><p class="numero">{{ datos.automaticas }}</p><p class="nombre">Resueltas automáticamente</p></div>
+  <div class="kpi"><span class="chip gris">{% icono 'clock-3' 18 %}</span><p class="numero">{{ datos.promedio_min|default_if_none:"—" }}{% if datos.promedio_min is not None %}<small>min</small>{% endif %}</p><p class="nombre">Tiempo medio de resolución</p></div>
+</section>
+
+<div class="graficas">
+  <section class="tarjeta">
+    <h3>{% icono 'chart-column' 18 %}Alertas por día</h3>
+    <p>Últimos 7 días · filtros aplicados</p>
+    {% include 'parciales/grafica_barras.html' with grafica=grafica_dias unidad='alertas' %}
+  </section>
+  <section class="tarjeta">
+    <h3>Plazas con más alertas</h3>
+    <p>Hasta 8 plazas · filtros aplicados</p>
+    {% if grafica_plazas %}
+      {% include 'parciales/grafica_barras.html' with grafica=grafica_plazas unidad='alertas' %}
+    {% else %}
+      <p class="vacio mt-5">No hay datos para este filtro</p>
+    {% endif %}
+  </section>
+</div>
+
+<div class="tabla-caja">
+  <p class="tabla-titulo">{{ alertas|length }} alertas encontradas</p>
+  <table class="tabla">
+    <thead>
+      <tr><th>Fecha y hora</th><th>Cámara</th><th>Plaza</th><th>Placa</th><th>Resultado</th><th>Estado</th><th>Resolución</th></tr>
+    </thead>
+    <tbody>
+      {% for alerta in alertas %}
+        <tr class="clic" data-href="{% url 'alertas:detalle' alerta.pk %}">
+          <td style="white-space: nowrap">{{ alerta.creada_en|date:"d/m/Y" }}<br>{{ alerta.creada_en|date:"H:i" }}</td>
+          <td>{{ alerta.camara_nombre|default:"—" }}</td>
+          <td>{{ alerta.plaza_nombre }}</td>
+          <td class="fuerte"><a class="texto-primario" href="{% url 'alertas:detalle' alerta.pk %}">{{ alerta.placa_visible }}</a></td>
+          <td>{{ alerta.get_resultado_display }}</td>
+          <td>{{ alerta.get_estado_display }}{% if alerta.estado == 'resuelta' and alerta.resolucion_automatica %}<small class="texto-verde">Automática</small>{% endif %}</td>
+          <td><p class="linea-clamp">{{ alerta.resolucion|default:"—" }}</p></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not alertas %}<p class="vacio">No hay alertas con esos filtros</p>{% endif %}
+</div>
+{% endblock %}

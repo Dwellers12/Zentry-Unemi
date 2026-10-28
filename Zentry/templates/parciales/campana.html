@@ -1,0 +1,31 @@
+{% load zentry_tags %}
+<div class="campana" id="campana">
+  <button type="button" aria-label="Notificaciones" aria-expanded="false" aria-controls="campana-panel" data-campana>
+    {% icono 'bell' 21 %}
+    <span class="globo" data-vivo="no-vistas" {% if not campana_no_vistas %}hidden{% endif %}>{{ campana_no_vistas }}</span>
+  </button>
+  <section class="panel" id="campana-panel" hidden>
+    <div class="cabeza">
+      <h3>Notificaciones</h3>
+      <form method="post" action="{% url 'alertas:marcar_vistas' %}" data-ajax data-sin-recarga>
+        {% csrf_token %}
+        <button type="submit">Marcar todas como vistas</button>
+      </form>
+    </div>
+    <div data-vivo="campana-lista">
+      {% for alerta in campana_ultimas %}
+        <a class="notificacion" href="{% url 'alertas:detalle' alerta.pk %}">
+          <span class="chip">{% icono 'bell' 16 %}</span>
+          <span class="texto">
+            <strong>{{ alerta.plaza_nombre }} · {{ alerta.placa_visible }}</strong>
+            <small>{{ alerta.get_estado_display }} · <span data-hace="{{ alerta.creada_en|marca_tiempo }}">{{ alerta.creada_en|hace }}</span></small>
+          </span>
+          {% if not alerta.vista and alerta.estado == 'pendiente' %}<span class="nuevo" aria-label="No vista"></span>{% endif %}
+        </a>
+      {% empty %}
+        <p class="sin-notificaciones">No hay alertas pendientes</p>
+      {% endfor %}
+    </div>
+    <a class="ver-todas" href="{% url 'alertas:lista' %}">Ver todas</a>
+  </section>
+</div>

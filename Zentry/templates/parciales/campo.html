@@ -1,0 +1,6 @@
+{# Campo de formulario de Django con el estilo del diseño: etiqueta, control y error. #}
+<label class="campo{% if campo.errors %} con-error{% endif %}" for="{{ campo.id_for_label }}">
+  <span>{{ campo.label }}</span>
+  {{ campo }}
+  {% for error in campo.errors %}<span class="error-campo">{{ error }}</span>{% endfor %}
+</label>

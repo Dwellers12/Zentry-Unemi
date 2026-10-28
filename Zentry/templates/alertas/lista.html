@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% load zentry_tags %}
+
+{% block contenido %}
+<div class="encabezado">
+  <div>
+    <h2>Registro de alertas</h2>
+    <p class="grande">Consulta y gestiona los eventos del parqueadero.</p>
+  </div>
+  <form method="get" class="buscador formulario" role="search">
+    {% if estado %}<input type="hidden" name="estado" value="{{ estado }}">{% endif %}
+    {% icono 'search' 17 %}
+    <input type="search" name="q" value="{{ q }}" placeholder="Buscar plaza o placa" aria-label="Buscar plaza o placa" data-buscar-al-escribir>
+  </form>
+</div>
+
+<nav class="pestanas" aria-label="Filtrar por estado" data-vivo-seccion="pestanas">
+  {% for valor, nombre, cantidad in pestanas %}
+    <a href="?{% if valor %}estado={{ valor }}{% endif %}{% if q %}{% if valor %}&{% endif %}q={{ q|urlencode }}{% endif %}"
+       class="{% if estado == valor %}activa{% endif %}" {% if estado == valor %}aria-current="page"{% endif %}>
+      {{ nombre }}<span>{{ cantidad }}</span>
+    </a>
+  {% endfor %}
+</nav>
+
+<div class="lista-alertas" data-vivo-seccion="lista">
+  {% for alerta in pagina %}
+    {% include 'parciales/fila_alerta.html' %}
+  {% empty %}
+    <p class="vacio">No hay alertas con ese filtro</p>
+  {% endfor %}
+</div>
+
+{% if pagina.paginator.num_pages > 1 %}
+  <nav class="paginacion" aria-label="Páginas">
+    {% if pagina.has_previous %}
+      <a class="boton-secundario" href="?pagina={{ pagina.previous_page_number }}{% if estado %}&estado={{ estado }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">{% icono 'chevron-left' 14 %}Anterior</a>
+    {% endif %}
+    <span>Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
+    {% if pagina.has_next %}
+      <a class="boton-secundario" href="?pagina={{ pagina.next_page_number }}{% if estado %}&estado={{ estado }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">Siguiente{% icono 'chevron-right' 14 %}</a>
+    {% endif %}
+  </nav>
+{% endif %}
+{% endblock %}

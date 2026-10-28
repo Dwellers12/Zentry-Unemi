@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% load zentry_tags %}
+
+{% block contenido %}
+<div class="encabezado">
+  <div>
+    <h2>Usuarios del sistema</h2>
+    <p>Solo la administración puede crear cuentas y elegir su rol.</p>
+  </div>
+</div>
+
+<div class="dos-columnas">
+  <div class="tabla-caja">
+    <table class="tabla">
+      <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Acciones</th></tr></thead>
+      <tbody>
+        {% for item in usuarios %}
+          {% with u=item.obj %}
+          <tr>
+            <td class="fuerte">{{ u.username }}{% if u.get_full_name %}<small>{{ u.get_full_name }}</small>{% endif %}</td>
+            <td>{{ item.rol }}</td>
+            <td>{% if u.is_active %}<span class="pastilla verde">Activa</span>{% else %}<span class="pastilla gris">Desactivada</span>{% endif %}</td>
+            <td>{% if u.last_login %}{{ u.last_login|date:"d/m/Y H:i" }}{% else %}—{% endif %}</td>
+            <td>
+              {% if item.rol == 'Agente' %}
+                <span class="texto-mini">Cuenta técnica (token)</span>
+              {% elif u != request.user %}
+                <form method="post" action="{% url 'cuentas:cambiar_estado_usuario' u.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="enlace {% if u.is_active %}rojo{% endif %} normal"
+                          data-confirmar="¿{% if u.is_active %}Desactivar{% else %}Activar{% endif %} la cuenta {{ u.username }}?">
+                    {% if u.is_active %}Desactivar{% else %}Activar{% endif %}
+                  </button>
+                </form>
+              {% else %}
+                <span class="texto-mini">Tu cuenta</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endwith %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="formulario">
+    <section class="tarjeta">
+      <h3>Crear cuenta</h3>
+      <form method="post" action="{% url 'cuentas:usuarios' %}" class="formulario" novalidate>
+        {% csrf_token %}
+        {% for campo in form %}{% include 'parciales/campo.html' %}{% endfor %}
+        <button type="submit" class="boton ancho">Crear cuenta</button>
+      </form>
+    </section>
+
+    <section class="tarjeta">
+      <h3>Agente de cámaras</h3>
+      <p class="texto-chico">El agente local usa un token para enviar las capturas. Renuévalo si crees que alguien más lo conoce;
+        después reinicia el agente para que lea el nuevo token.</p>
+      <form method="post" action="{% url 'cuentas:renovar_token_agente' %}" class="mt-4">
+        {% csrf_token %}
+        <button type="submit" class="boton-secundario" data-confirmar="¿Renovar el token? El agente dejará de conectarse hasta que use el nuevo.">
+          {% icono 'key-round' 14 %}Renovar token del agente
+        </button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

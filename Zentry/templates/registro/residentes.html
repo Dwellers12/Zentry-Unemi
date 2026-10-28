@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% load zentry_tags %}
+
+{% block contenido %}
+<div class="encabezado">
+  <div>
+    <h2>Comunidad residencial</h2>
+    <p>{{ total }} residente{{ total|pluralize }} registrado{{ total|pluralize }}</p>
+  </div>
+  <form method="get" action="{% url 'registro:residentes' %}" class="buscador formulario" role="search">
+    {% icono 'search' 17 %}
+    <input type="search" name="q" value="{{ q }}" placeholder="Nombre, cédula, dpto. o placa"
+           aria-label="Nombre, cédula, dpto. o placa" data-buscar-al-escribir>
+  </form>
+</div>
+
+<div class="dos-columnas">
+  <div class="tabla-caja">
+    <table class="tabla">
+      <thead>
+        <tr><th>Nombre</th><th>Cédula</th><th>Dpto.</th><th>Teléfono</th><th>Placas</th><th>Acciones</th></tr>
+      </thead>
+      <tbody>
+        {% for residente in residentes %}
+          <tr>
+            <td class="fuerte">{{ residente.nombre }}{% if residente.correo %}<small>{{ residente.correo }}</small>{% endif %}</td>
+            <td>{{ residente.cedula }}</td>
+            <td>{{ residente.departamento }}</td>
+            <td>{{ residente.telefono }}</td>
+            <td>{% for vehiculo in residente.vehiculos.all %}{{ vehiculo.placa }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+            <td>
+              <div class="acciones-fila">
+                <a class="enlace normal" href="{% url 'registro:residente_editar' residente.pk %}">Editar</a>
+                <a class="enlace normal" href="{% url 'registro:vehiculos' %}?residente={{ residente.pk }}#registrar">Agregar vehículo</a>
+                <form method="post" action="{% url 'registro:residente_eliminar' residente.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="enlace rojo normal"
+                          data-confirmar="¿Eliminar a {{ residente.nombre }}?{% if residente.n_vehiculos %} También se eliminarán {{ residente.n_vehiculos }} vehículo(s).{% endif %}">Eliminar</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not residentes %}<p class="vacio">{% if q %}No se encontraron residentes{% else %}Todavía no hay residentes registrados{% endif %}</p>{% endif %}
+  </div>
+
+  <section class="tarjeta">
+    <h3>Registrar residente</h3>
+    <form method="post" action="{% url 'registro:residentes' %}" class="formulario" novalidate>
+      {% csrf_token %}
+      {% for campo in form %}{% include 'parciales/campo.html' %}{% endfor %}
+      <button type="submit" class="boton ancho">Guardar</button>
+      <button type="submit" name="accion" value="vehiculo" class="boton-borde">Guardar y registrar vehículo</button>
+    </form>
+  </section>
+</div>
+
+{% if editando %}
+  <dialog class="modal" id="modal-editar-residente" data-abrir-al-cargar data-al-cerrar="{% url 'registro:residentes' %}"
+          aria-labelledby="titulo-editar-residente">
+    <div class="cabeza-modal">
+      <h2 id="titulo-editar-residente">Editar residente</h2>
+      <a href="{% url 'registro:residentes' %}" aria-label="Cerrar">{% icono 'x' 24 %}</a>
+    </div>
+    <form method="post" action="{% url 'registro:residente_editar' editando.pk %}" class="formulario" novalidate>
+      {% csrf_token %}
+      {% for campo in editar_form %}{% include 'parciales/campo.html' %}{% endfor %}
+      <button type="submit" class="boton ancho">Guardar</button>
+    </form>
+  </dialog>
+{% endif %}
+{% endblock %}

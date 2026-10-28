@@ -1,0 +1,33 @@
+{% load zentry_tags %}
+<a href="{% url 'alertas:detalle' alerta.pk %}"
+   class="fila-alerta{% if alerta.estado == 'resuelta' %} resuelta{% elif alerta.resultado == 'no_concluyente' %} no-concluyente{% endif %}">
+  <div class="miniatura">
+    {% if alerta.evidencia or alerta.evidencia_recorte %}
+      <img src="{% url 'alertas:evidencia' alerta.pk 'recorte' %}" alt="Evidencia de {{ alerta.plaza_nombre }}" loading="lazy">
+    {% else %}
+      <span class="sin-imagen">{% icono 'camera' 20 %}</span>
+    {% endif %}
+  </div>
+  <div class="datos">
+    <p class="plaza">Plaza {{ alerta.plaza_nombre }}</p>
+    <p class="placa">{{ alerta.placa_visible }}</p>
+    {% if alerta.estado == 'resuelta' and alerta.resolucion %}
+      <p class="resolucion">{% icono 'file-text' 12 %}<span>{{ alerta.resolucion }}</span></p>
+    {% else %}
+      <p class="motivo">{{ alerta.get_resultado_display }}</p>
+      <span class="tiempo" data-hace="{{ alerta.creada_en|marca_tiempo }}">{{ alerta.creada_en|hace }}</span>
+    {% endif %}
+    {% if alerta.atrasada %}<span class="etiqueta-atrasada">Atrasada</span>{% endif %}
+  </div>
+  <div class="pie-fila">
+    <div class="fecha">
+      <p>{{ alerta.creada_en|date:"d/m/Y" }}</p>
+      <p class="hora">{{ alerta.creada_en|date:"H:i" }}</p>
+    </div>
+    <div class="estado">
+      <span class="insignia{% if alerta.estado == 'resuelta' %} resuelta{% endif %}">{{ alerta.get_estado_display }}</span>
+      {% if alerta.estado == 'resuelta' and alerta.resolucion_automatica %}<p class="etiqueta-automatica">Automática</p>{% endif %}
+    </div>
+  </div>
+  <span class="flecha">{% icono 'chevron-right' 19 %}</span>
+</a>

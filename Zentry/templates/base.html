@@ -1,0 +1,86 @@
+{% load static zentry_tags %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo_html %}{% if titulo %}{{ titulo }} · {% endif %}Zentry · Parqueadero residencial{% endblock %}</title>
+  <link rel="icon" href="{% static 'zentry/img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'zentry/css/zentry.css' %}">
+</head>
+<body data-api-estado="{% url 'alertas:api_estado' %}" data-refresco="{{ refresco_ms }}"
+      data-es-admin="{{ es_admin|yesno:'1,0' }}" data-url-alerta="{% url 'alertas:detalle' 0 %}"
+      data-url-imagen="{% url 'registro:imagen_camara' 'CODIGO' %}" data-url-plazas="{% url 'registro:api_plazas_camara' 'CODIGO' %}"
+      data-seccion="{{ seccion }}">
+
+<aside class="lateral" aria-label="Menú principal">
+  <a href="{% url 'alertas:dashboard' %}" class="marca">Zentry<span>.</span></a>
+  <p class="lema">TU PARQUEADERO, BAJO CONTROL</p>
+  <div class="menu-titulo">MENÚ PRINCIPAL</div>
+  <nav class="menu">
+    {% for item in menu %}
+      <a href="{% url item.url %}" class="{% activo item.seccion %}" {% if seccion == item.seccion %}aria-current="page"{% endif %}>
+        {% icono item.icono 19 %}{{ item.nombre }}
+        {% if item.seccion == 'alertas' %}<span class="contador" data-vivo="pendientes">{{ alertas_pendientes|default:0 }}</span>{% endif %}
+      </a>
+    {% endfor %}
+  </nav>
+  <div class="pie">
+    <div class="tarjeta-lema">
+      {% icono 'shield-check' 24 %}
+      <strong>Un espacio más seguro</strong>
+      <p>Gestión y monitoreo para tu comunidad residencial.</p>
+    </div>
+    <button type="submit" form="form-salir" class="boton-salir" data-confirmar="¿Deseas cerrar sesión?">
+      {% icono 'log-out' 18 %}Cerrar sesión
+    </button>
+    <p class="creditos">ZENTRY © 2026 · PROYECTO ACADÉMICO</p>
+  </div>
+</aside>
+
+<div class="contenido">
+  <header class="cabecera">
+    <div class="izquierda">
+      <button type="button" class="boton-menu" aria-label="Abrir menú" aria-controls="menu-movil" aria-expanded="false" data-alternar="menu-movil">
+        {% icono 'menu' 24 %}
+      </button>
+      <h1>{% block titulo_pagina %}{{ titulo|default:rol }}{% endblock %}</h1>
+    </div>
+    <div class="derecha">
+      {% include 'parciales/campana.html' %}
+      <div class="avatar" aria-hidden="true">{{ iniciales }}</div>
+      <div class="usuario">
+        <strong>{{ nombre_visible }}</strong>
+        <span>{{ rol }}</span>
+      </div>
+    </div>
+  </header>
+
+  <nav id="menu-movil" class="menu-movil" hidden aria-label="Menú">
+    {% for item in menu %}
+      <a href="{% url item.url %}" class="{% activo item.seccion %}">{{ item.nombre }}</a>
+    {% endfor %}
+    <button type="submit" form="form-salir" data-confirmar="¿Cerrar sesión?">Cerrar sesión</button>
+  </nav>
+
+  <main class="principal">
+    {% block contenido %}{% endblock %}
+  </main>
+</div>
+
+<div class="avisos" id="avisos" aria-live="polite">
+  {% for mensaje in messages %}
+    <div class="aviso{% if mensaje.level_tag == 'error' %} error{% endif %}" role="status" data-autocerrar>
+      {% if mensaje.level_tag == 'error' %}{% icono 'triangle-alert' 20 %}{% else %}{% icono 'check' 20 %}{% endif %}
+      <span>{{ mensaje }}</span>
+      <button type="button" aria-label="Cerrar aviso" data-cerrar-aviso>{% icono 'x' 17 %}</button>
+    </div>
+  {% endfor %}
+</div>
+
+<form id="form-salir" method="post" action="{% url 'cuentas:cerrar_sesion' %}" hidden>{% csrf_token %}</form>
+{{ zentry_inicial|json_script:"zentry-inicial" }}
+<script src="{% static 'zentry/js/iconos.js' %}"></script>
+<script src="{% static 'zentry/js/zentry.js' %}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

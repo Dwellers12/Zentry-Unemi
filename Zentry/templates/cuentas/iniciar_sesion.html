@@ -1,0 +1,63 @@
+{% load static zentry_tags %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iniciar sesión · Zentry</title>
+  <link rel="icon" href="{% static 'zentry/img/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'zentry/css/zentry.css' %}">
+</head>
+<body>
+<main class="acceso">
+  <div class="caja">
+    <div class="escudo"><span>{% icono 'shield-check' 57 %}</span></div>
+    <h1>Iniciar sesión</h1>
+    <p class="bajada">Ingresa con tu usuario y contraseña</p>
+
+    <form method="post" class="formulario" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <label class="campo{% if form.errors %} con-error{% endif %}">
+        <span>USUARIO</span>
+        <input type="text" name="usuario" value="{{ form.usuario.value|default:'' }}" autocomplete="username" autofocus required>
+      </label>
+      <label class="campo{% if form.errors %} con-error{% endif %}">
+        <span>CONTRASEÑA</span>
+        <span class="clave">
+          <input type="password" name="contrasena" id="clave" autocomplete="current-password" required>
+          <button type="button" aria-label="Mostrar u ocultar contraseña" data-ver-clave="clave">
+            <span data-ojo>{% icono 'eye' 19 %}</span><span data-ojo hidden>{% icono 'eye-off' 19 %}</span>
+          </button>
+        </span>
+      </label>
+      {% for error in form.non_field_errors %}
+        <p class="error-general" role="alert">{{ error }}</p>
+      {% endfor %}
+      {% for mensaje in messages %}
+        <p class="error-general" role="alert">{{ mensaje }}</p>
+      {% endfor %}
+      <button class="boton ancho alto">Iniciar sesión</button>
+    </form>
+
+    {% if mostrar_demo %}
+      <div class="demo">
+        <strong>Accesos de demostración</strong><br>
+        admin / Zentry2026<br>
+        seguridad / Zentry2026
+      </div>
+    {% endif %}
+    <p class="lema-pie">Zentry · Tu parqueadero, bajo control</p>
+  </div>
+</main>
+<script>
+  // Mostrar u ocultar la contraseña (no hace falta el resto del JavaScript en esta página).
+  document.querySelectorAll('[data-ver-clave]').forEach((boton) => {
+    boton.addEventListener('click', () => {
+      const campo = document.getElementById(boton.dataset.verClave);
+      campo.type = campo.type === 'password' ? 'text' : 'password';
+      boton.querySelectorAll('[data-ojo]').forEach((ojo) => { ojo.hidden = !ojo.hidden; });
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+{% load zentry_tags %}
+
+{% block contenido %}
+<div class="encabezado">
+  <div>
+    <h2>Vista general</h2>
+    <p>Un vistazo a lo que sucede en tu parqueadero.</p>
+  </div>
+  <div class="agente{% if not agente.en_linea %} desconectado{% endif %}" data-vivo="agente" role="status">
+    {% if agente.en_linea %}Agente conectado · {{ agente.camaras_en_linea }} de {{ agente.camaras_total }} cámaras en línea{% else %}Agente sin señal{% endif %}
+  </div>
+</div>
+
+<div class="fila-flex entre mb-4">
+  <h3 class="subtitulo">{% icono 'camera' 18 %}Cámaras</h3>
+  {% if camaras %}
+    <button type="button" class="enlace" data-abrir-muro>{% icono 'maximize-2' 15 %}Pantalla completa</button>
+  {% endif %}
+</div>
+
+{% if camaras %}
+  <section class="camaras">
+    {% for camara in camaras %}
+      <article class="tarjeta-camara" data-camara="{{ camara.codigo }}">
+        <div class="cabeza">
+          <h3>{{ camara.nombre }}</h3>
+          <div class="fila-flex">
+            <a class="contador-alertas-camara" href="#" data-camara-alertas hidden></a>
+            <span class="estado-camara {% if camara.en_linea %}en-linea{% else %}sin-senal{% endif %}" data-camara-estado>
+              {% if camara.en_linea %}En línea{% else %}Sin señal{% endif %}
+            </span>
+          </div>
+        </div>
+        <div class="feed clic" role="button" tabindex="0" data-feed="{{ camara.codigo }}" data-abrir-muro="{{ camara.codigo }}"
+             aria-label="Ampliar {{ camara.nombre }}" style="aspect-ratio: {{ camara.ancho }} / {{ camara.alto }}">
+          <img src="{% url 'registro:imagen_camara' camara.codigo %}?t={{ camara.ultima_captura|marca_tiempo }}"
+               alt="Imagen de {{ camara.nombre }}" data-feed-imagen>
+          <div class="sin-imagen" data-feed-vacio hidden>
+            {% icono 'wifi-off' 32 %}
+            <span>La cámara todavía no envía imágenes</span>
+            <small>Inicia el agente o el entorno virtual</small>
+          </div>
+          <svg preserveAspectRatio="none" data-feed-capa aria-label="Estado de plazas"></svg>
+        </div>
+        <div class="pie">
+          <p><strong data-camara-libres>— de {{ camara.plazas.all|length }}</strong> plazas libres</p>
+          <small>Última lectura: <span data-camara-lectura>{{ camara.ultima_captura|date:"H:i:s"|default:"—" }}</span></small>
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+  <div class="leyenda">
+    <span><i class="color-libre"></i>Libre</span>
+    <span><i class="color-ocupada"></i>Ocupada</span>
+    <span><i class="color-no-autorizada"></i>No autorizada</span>
+    <span><i class="color-no-concluyente"></i>No concluyente</span>
+  </div>
+{% else %}
+  <div class="tarjeta">
+    <p class="aviso-azul">{% icono 'info' 16 %}
+      <span>Todavía no hay cámaras registradas. Para probar con el entorno virtual ejecuta
+      <strong>python camaras_virtuales.py</strong> en la carpeta del proyecto: las cámaras del simulador
+      aparecerán aquí solas.</span>
+    </p>
+  </div>
+{% endif %}
+
+<section class="kpis" data-vivo-seccion="kpis">
+  <a class="kpi" href="{% url 'alertas:lista' %}">
+    <div class="arriba"><span class="chip azul">{% icono 'bell' 18 %}</span>{% icono 'arrow-up-right' 15 %}</div>
+    <p class="numero" data-resumen="total">{{ resumen.total }}</p>
+    <p class="nombre">Alertas</p>
+  </a>
+  <a class="kpi" href="{% url 'alertas:lista' %}?estado=pendiente">
+    <div class="arriba"><span class="chip rojo">{% icono 'triangle-alert' 18 %}</span>{% icono 'arrow-up-right' 15 %}</div>
+    <p class="numero" data-resumen="pendientes">{{ resumen.pendientes }}</p>
+    <p class="nombre">Pendientes</p>
+  </a>
+  <a class="kpi" href="{% url 'alertas:lista' %}?estado=revisada">
+    <div class="arriba"><span class="chip rojo">{% icono 'triangle-alert' 18 %}</span>{% icono 'arrow-up-right' 15 %}</div>
+    <p class="numero" data-resumen="revisadas">{{ resumen.revisadas }}</p>
+    <p class="nombre">Revisadas</p>
+  </a>
+  <a class="kpi" href="{% url 'alertas:lista' %}?estado=resuelta">
+    <div class="arriba"><span class="chip verde">{% icono 'shield-check' 18 %}</span>{% icono 'arrow-up-right' 15 %}</div>
+    <p class="numero" data-resumen="resueltas">{{ resumen.resueltas }}</p>
+    <p class="nombre">Resueltas</p>
+  </a>
+  {% if es_admin %}
+    <a class="kpi" href="{% url 'registro:vehiculos' %}">
+  {% else %}
+    <button type="button" class="kpi" data-denegado>
+  {% endif %}
+    <div class="arriba"><span class="chip verde">{% icono 'square-parking' 18 %}</span>{% icono 'arrow-up-right' 15 %}</div>
+    <p class="numero"><span data-resumen="libres">{{ resumen.libres }}</span><small>de <span data-resumen="plazas">{{ resumen.plazas }}</span></small></p>
+    <p class="nombre">Plazas libres</p>
+  {% if es_admin %}</a>{% else %}</button>{% endif %}
+  <div class="kpi">
+    <span class="chip gris">{% icono 'clock-3' 18 %}</span>
+    <p class="numero"><span data-resumen="promedio_min">{{ resumen.promedio_min|default_if_none:"—" }}</span>{% if resumen.promedio_min is not None %}<small>min</small>{% endif %}</p>
+    <p class="nombre chico">Tiempo medio de resolución</p>
+  </div>
+</section>
+
+<div class="encabezado mb-5">
+  <div>
+    <h2>Alertas recientes</h2>
+    <p>Últimos eventos detectados por las cámaras.</p>
+  </div>
+</div>
+<div class="lista-alertas" data-vivo-seccion="recientes">
+  {% for alerta in recientes %}
+    {% include 'parciales/fila_alerta.html' %}
+  {% empty %}
+    <p class="vacio">Todavía no hay alertas. Las cámaras avisarán aquí cuando un vehículo no corresponda a su plaza.</p>
+  {% endfor %}
+</div>
+<div class="derecha-flex mt-5">
+  <a class="boton peligro" href="{% url 'alertas:lista' %}">Ver más {% icono 'chevron-right' 16 %}</a>
+</div>
+
+<section class="tarjeta suave actividad" data-vivo-seccion="actividad">
+  <div class="cabeza">
+    <h3>{% icono 'activity' 19 %}Actividad</h3>
+    <span>Últimos 10 eventos</span>
+  </div>
+  {% include 'parciales/actividad.html' %}
+</section>
+
+<footer class="pie-pagina">
+  <span>Zentry · Gestión inteligente del parqueadero</span>
+  {% if es_admin %}<a href="{% url 'admin:index' %}">{% icono 'user-cog' 13 %}Administración avanzada</a>{% endif %}
+</footer>
+{% endblock %}
+
+{% block scripts %}
+{% load static %}
+<script src="{% static 'zentry/js/camaras.js' %}"></script>
+{% if es_admin %}<script src="{% static 'zentry/js/editor_plazas.js' %}"></script>{% endif %}
+{% endblock %}

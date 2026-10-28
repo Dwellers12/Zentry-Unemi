@@ -1,0 +1,16 @@
+{# Gráfico de barras dibujado en el servidor (SVG), igual al del diseño. Sin localizar: el SVG necesita punto decimal. #}
+{% load l10n %}{% localize off %}
+<svg class="grafica" viewBox="0 0 {{ grafica.ancho }} {{ grafica.alto }}" role="img"
+     aria-label="{% for barra in grafica.barras %}{{ barra.etiqueta }}: {{ barra.valor }} {{ unidad }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+  {% for y in grafica.lineas %}
+    <line x1="0" x2="{{ grafica.ancho }}" y1="{{ y }}" y2="{{ y }}" stroke="#C2C6CE" stroke-dasharray="4 4"/>
+  {% endfor %}
+  {% for barra in grafica.barras %}
+    <g>
+      <rect x="{{ barra.x }}" y="{{ barra.y }}" width="{{ barra.ancho }}" height="{{ barra.alto }}" rx="6" fill="#5580C2"/>
+      <text x="{{ barra.cx }}" y="{{ barra.ty }}" text-anchor="middle" fill="#0A2A66" font-size="12" font-weight="600">{{ barra.valor }}</text>
+      <text x="{{ barra.cx }}" y="205" text-anchor="middle" fill="#5B6275" font-size="12">{{ barra.etiqueta }}</text>
+    </g>
+  {% endfor %}
+</svg>
+{% endlocalize %}

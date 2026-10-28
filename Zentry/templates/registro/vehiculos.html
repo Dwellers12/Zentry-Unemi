@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% load static zentry_tags %}
+
+{% block contenido %}
+<section class="mapa" aria-labelledby="titulo-mapa">
+  <div class="cabeza">
+    <h2 id="titulo-mapa">Mapa de plazas</h2>
+    <div class="leyenda">
+      <span><i class="color-libre"></i>Libre</span>
+      <span><i class="color-ocupada"></i>Ocupada</span>
+      <span><i class="color-no-autorizada"></i>No autorizada</span>
+      <span><i class="color-no-concluyente"></i>No concluyente</span>
+      {% if camaras %}
+        <button type="button" class="enlace" data-abrir-modal="modal-elegir-camara">{% icono 'pencil' 14 %}Editar plazas</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% for camara in camaras %}
+    <div class="grupo">
+      <p class="camara-nombre">{% icono 'camera' 15 %}{{ camara.nombre }}</p>
+      <div class="plazas">
+        {% for plaza in camara.plazas.all %}
+          <button type="button" class="plaza-tile" data-plaza="{{ plaza.pk }}">
+            <p class="nombre">{{ plaza.nombre }}</p>
+            <p class="placa" data-plaza-placa>Sin vehículo</p>
+            <p class="estado" data-plaza-estado>Libre</p>
+          </button>
+        {% empty %}
+          <p class="texto-chico">Esta cámara todavía no tiene plazas. Usa «Editar plazas» para dibujarlas.</p>
+        {% endfor %}
+      </div>
+    </div>
+  {% empty %}
+    <p class="vacio">No hay cámaras registradas. Cuando el agente o el entorno virtual se conecten, sus cámaras aparecerán aquí.</p>
+  {% endfor %}
+
+  {% if plazas_sin_camara %}
+    <div class="grupo">
+      <p class="camara-nombre">{% icono 'wifi-off' 15 %}Plazas sin cámara</p>
+      <div class="plazas">
+        {% for plaza in plazas_sin_camara %}
+          <div class="plaza-tile"><p class="nombre">{{ plaza.nombre }}</p><p class="estado">Sin cámara asignada</p></div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+<div class="dos-columnas">
+  <div class="tabla-caja">
+    <h2 class="tabla-titulo">Vehículos registrados <small>{{ vehiculos|length }} vehículo{{ vehiculos|length|pluralize }}</small></h2>
+    <table class="tabla">
+      <thead><tr><th>Placa</th><th>Vehículo</th><th>Residente</th><th>Plaza</th><th>Acciones</th></tr></thead>
+      <tbody>
+        {% for vehiculo in vehiculos %}
+          <tr>
+            <td class="fuerte">{{ vehiculo.placa }}</td>
+            <td>{{ vehiculo.marca_modelo }}<small>{{ vehiculo.color }}</small></td>
+            <td>{{ vehiculo.residente.nombre }}<small>Dpto. {{ vehiculo.residente.departamento }}</small></td>
+            <td>{% if vehiculo.plaza %}{{ vehiculo.plaza.nombre }}{% else %}<span class="sin-asignar">Sin asignar</span>{% endif %}</td>
+            <td>
+              <div class="acciones-fila">
+                <a class="enlace normal" href="{% url 'registro:vehiculo_editar' vehiculo.pk %}">Editar</a>
+                <form method="post" action="{% url 'registro:vehiculo_eliminar' vehiculo.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="enlace rojo normal" data-confirmar="¿Eliminar el vehículo {{ vehiculo.placa }}?">Eliminar</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not vehiculos %}<p class="vacio">No hay vehículos registrados</p>{% endif %}
+  </div>
+
+  <section class="tarjeta" id="registrar">
+    <h3>Registrar vehículo</h3>
+    <form method="post" action="{% url 'registro:vehiculos' %}" class="formulario" novalidate data-form-vehiculo data-duenos="{{ duenos_form }}">
+      {% csrf_token %}
+      {% for campo in form %}{% include 'parciales/campo.html' %}{% endfor %}
+      <p class="texto-mini">Varios vehículos del mismo residente pueden compartir su plaza.</p>
+      <button type="submit" class="boton ancho">Guardar</button>
+    </form>
+  </section>
+</div>
+
+{% if editando %}
+  <dialog class="modal" id="modal-editar-vehiculo" data-abrir-al-cargar data-al-cerrar="{% url 'registro:vehiculos' %}"
+          aria-labelledby="titulo-editar-vehiculo">
+    <div class="cabeza-modal">
+      <h2 id="titulo-editar-vehiculo">Editar vehículo</h2>
+      <a href="{% url 'registro:vehiculos' %}" aria-label="Cerrar">{% icono 'x' 24 %}</a>
+    </div>
+    <form method="post" action="{% url 'registro:vehiculo_editar' editando.pk %}" class="formulario" novalidate data-form-vehiculo data-duenos="{{ duenos_editar }}">
+      {% csrf_token %}
+      {% for campo in editar_form %}{% include 'parciales/campo.html' %}{% endfor %}
+      <button type="submit" class="boton ancho">Guardar</button>
+    </form>
+  </dialog>
+{% endif %}
+
+{# Ficha de una plaza (se llena con JavaScript con el estado en vivo). #}
+<dialog class="modal" id="modal-plaza" aria-labelledby="titulo-plaza">
+  <div class="cabeza-modal">
+    <h2 id="titulo-plaza" data-ficha="titulo">Plaza</h2>
+    <button type="button" aria-label="Cerrar" data-cerrar-modal>{% icono 'x' 24 %}</button>
+  </div>
+  <div class="feed" data-ficha="feed"></div>
+  <div class="ficha-plaza">
+    <p><strong>Estado:</strong> <span data-ficha="estado"></span></p>
+    <p><strong>Vehículo detectado:</strong> <span data-ficha="placa"></span></p>
+    <p><strong>Propietario:</strong> <span data-ficha="propietario"></span></p>
+    <p><strong>Residente asignado:</strong> <span data-ficha="asignado"></span></p>
+    <p data-ficha="confianza-fila"><strong>Confianza de lectura:</strong> <span data-ficha="confianza"></span></p>
+    <p data-ficha="desde-fila"><strong>Ocupada desde:</strong> <span data-ficha="desde"></span></p>
+  </div>
+  <div class="fila-flex">
+    <a class="boton" href="#" data-ficha="ver-alerta" hidden>Ver alerta</a>
+    <button type="button" class="boton-secundario" data-ficha="editar">{% icono 'pencil' 14 %}Editar plazas de esta cámara</button>
+  </div>
+  <p class="aviso-azul mt-5">{% icono 'info' 16 %}<span>Las llegadas y salidas las detecta la cámara. Para probarlas, mueve
+    vehículos en el entorno virtual (simulador) y espera unos segundos.</span></p>
+</dialog>
+
+<dialog class="modal" id="modal-elegir-camara" aria-labelledby="titulo-elegir-camara">
+  <div class="cabeza-modal">
+    <h2 id="titulo-elegir-camara">Seleccionar cámara</h2>
+    <button type="button" aria-label="Cerrar" data-cerrar-modal>{% icono 'x' 24 %}</button>
+  </div>
+  <div class="opciones-camara">
+    {% for camara in camaras %}
+      <button type="button" data-editar-plazas="{{ camara.codigo }}">
+        {% icono 'camera' 24 %}{{ camara.nombre }}
+        <small>{{ camara.plazas.all|length }} plaza{{ camara.plazas.all|length|pluralize }} · {{ camara.get_plazas_origen_display }}</small>
+      </button>
+    {% endfor %}
+  </div>
+</dialog>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'zentry/js/camaras.js' %}"></script>
+<script src="{% static 'zentry/js/editor_plazas.js' %}"></script>
+{% endblock %}

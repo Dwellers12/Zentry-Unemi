@@ -9,7 +9,13 @@ __pycache__/
 # Django
 Zentry/db.sqlite3
 Zentry/media/
+Zentry/staticfiles/
 *.log
+
+# Agente local: token y cola de capturas sin enviar
+.agente_token
+.agente_cola/
+.agente_cola_configuracion.json
 
 # Variables de entorno
 .env
@@ -21,3 +27,11 @@ runs/
 .vscode/
 .idea/
 .DS_Store
+
+# Solo en la PC del equipo, no hacen falta para ejecutar Zentry:
+# documentación y entregas de la UNEMI, fotos 4K de ejemplo, entrenamiento
+# del lector de placas (601 MB con sus datos) y el script de la fase 1.
+docs/
+ejemplos/
+entrenamiento/
+prototipo/

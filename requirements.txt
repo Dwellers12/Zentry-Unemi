@@ -1,8 +1,18 @@
+# Servidor web (Zentry/)
 Django==6.1.1
 djangorestframework==3.18.1
+Pillow==12.3.0            # recorte de la evidencia y pruebas
+# boto3                   # solo en producción, para S3 / SNS / SES (alertas/adaptadores.py)
+# psycopg[binary]         # solo si se usa PostgreSQL (Amazon RDS) con ZENTRY_DB_ENGINE=postgresql
+
+# Agente local (agente/ y camaras_virtuales.py)
+requests==2.34.2
 ultralytics==8.4.152
 easyocr==1.7.2
 opencv-python==5.0.0.93
 numpy==2.5.3
 torch==2.14.0
 torchvision==0.29.0
+
+# Solo para volver a entrenar el lector de placas (entrenamiento/ocr_placas/)
+# playwright              # captura escenas del simulador; con Chromium del sistema o `playwright install chromium`

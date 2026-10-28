@@ -1,0 +1,213 @@
+{% extends 'base.html' %}
+{% load zentry_tags %}
+
+{% block contenido %}
+<a class="boton gris mb-6" href="{% url 'alertas:lista' %}" data-volver>← Volver atrás</a>
+
+<div class="panel-detalle" data-vivo-seccion="detalle">
+  <div class="rejilla">
+    <div>
+      <div class="evidencia" data-evidencia>
+        {% if alerta.evidencia or alerta.evidencia_recorte %}
+          <img src="{% url 'alertas:evidencia' alerta.pk 'recorte' %}" alt="Evidencia de la alerta en {{ alerta.plaza_nombre }}"
+               data-evidencia-imagen data-recorte="{% url 'alertas:evidencia' alerta.pk 'recorte' %}"
+               data-completa="{% url 'alertas:evidencia' alerta.pk 'completa' %}">
+          <div class="error-carga" role="alert" data-evidencia-error hidden>
+            {% icono 'triangle-alert' 24 %}
+            <p>No se pudo cargar la evidencia. Revisa tu conexión a internet.</p>
+            <button type="button" class="boton" data-evidencia-reintentar>Reintentar</button>
+          </div>
+        {% else %}
+          <div class="error-carga" role="note">
+            {% icono 'image' 24 %}
+            <p>Esta alerta no tiene imagen de evidencia{% if alerta.estado == 'resuelta' %} (pudo borrarse al cumplirse el tiempo de retención){% endif %}.</p>
+          </div>
+        {% endif %}
+      </div>
+      <div class="nota-evidencia">
+        <span>Evidencia · {{ alerta.camara_nombre|default:"Cámara" }} · {{ alerta.plaza_nombre }} · {{ alerta.creada_en|date:"H:i:s" }}</span>
+        {% if alerta.evidencia and alerta.evidencia_recorte %}
+          <button type="button" class="enlace" data-evidencia-alternar>{% icono 'maximize-2' 13 %}<span>Ver imagen completa</span></button>
+        {% endif %}
+      </div>
+    </div>
+
+    <div>
+      <h2>Datos de la alerta</h2>
+      <dl class="datos-alerta">
+        <div class="dato"><dt>Plaza</dt><dd>{{ alerta.plaza_nombre }}</dd></div>
+        <div class="dato"><dt>Placa detectada</dt><dd>{{ alerta.placa_visible }}</dd></div>
+        <div class="dato"><dt>Propietario</dt><dd>{% if detectado %}{{ detectado.residente.nombre }}{% elif alerta.placa %}No registrado{% else %}—{% endif %}</dd></div>
+        {% if detectado %}
+          <div class="dato"><dt>Vehículo</dt><dd>{{ detectado.marca_modelo }} · {{ detectado.color }}</dd></div>
+        {% endif %}
+        <div class="dato"><dt>Fecha</dt><dd>{{ alerta.creada_en|date:"d/m/Y" }}</dd></div>
+        <div class="dato"><dt>Hora</dt><dd>{{ alerta.creada_en|date:"H:i" }}</dd></div>
+        <div class="dato"><dt>Resultado</dt><dd class="{% if alerta.resultado == 'no_concluyente' %}ambar{% endif %}">{{ alerta.get_resultado_display }}</dd></div>
+        {% if alerta.activa %}
+          <div class="dato"><dt>En la plaza ahora</dt><dd>{% if sigue_ahi %}El vehículo sigue ahí{% else %}Ya no está{% endif %}</dd></div>
+        {% endif %}
+
+        <div class="separador">
+          <div class="dato">
+            <dt><label for="estado-alerta">Estado</label></dt>
+            <dd>
+              <select id="estado-alerta" class="selector-estado" data-estado-actual="{{ alerta.estado }}" data-cambiar-estado>
+                {% for valor, nombre in estados %}
+                  <option value="{{ valor }}" {% if valor == alerta.estado %}selected{% endif %}>{{ nombre }}</option>
+                {% endfor %}
+              </select>
+            </dd>
+          </div>
+          <div class="separador mt-4">
+            <p class="confianza">Confianza de lectura: <strong>{{ alerta.confianza }} %</strong></p>
+            {% if confianza_baja %}
+              <p class="aviso-ambar">{% icono 'triangle-alert' 15 %}<span>Revisa la imagen: la lectura puede estar mal</span></p>
+            {% endif %}
+            {% if es_admin %}
+              <button type="button" class="enlace mt-3" data-abrir-modal="modal-corregir">{% icono 'pencil' 14 %}Corregir placa</button>
+            {% endif %}
+          </div>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="registrado">
+    <h3>Registrado para esta plaza</h3>
+    {% if residente_asignado %}
+      <div class="fila">
+        <div>
+          <strong>{{ residente_asignado.nombre }}</strong>
+          <small>Departamento {{ residente_asignado.departamento }}</small>
+        </div>
+        {% for vehiculo in asignados %}
+          <div>
+            <strong>{{ vehiculo.placa }}</strong>
+            <small>{{ vehiculo.marca_modelo }} · {{ vehiculo.color }}</small>
+          </div>
+        {% endfor %}
+        {% if es_admin %}
+          <a class="boton" href="{% url 'registro:residentes' %}?q={{ residente_asignado.cedula }}">Ver residentes</a>
+        {% else %}
+          <button type="button" class="boton" data-denegado>Ver residentes</button>
+        {% endif %}
+      </div>
+    {% elif alerta.plaza %}
+      <p>Plaza sin asignar</p>
+    {% else %}
+      <p>La plaza {{ alerta.plaza_nombre }} ya no existe</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if alerta.resolucion %}
+  <section class="panel-resolucion">
+    <div class="cabeza">
+      <h3>{% icono 'shield-check' 19 %}Resolución</h3>
+      {% if alerta.resolucion_automatica %}<span class="pastilla verde">Automática</span>{% endif %}
+    </div>
+    {% if alerta.estado != 'resuelta' %}<p class="texto-chico mb-4">Resolución anterior · alerta reabierta</p>{% endif %}
+    <p class="texto">{{ alerta.resolucion }}</p>
+    <p class="autor">{{ alerta.resolucion_autor }}{% if alerta.resuelta_en %} · {{ alerta.resuelta_en|date:"d/m/Y" }} · {{ alerta.resuelta_en|date:"H:i" }}{% endif %}</p>
+    {% if es_admin and alerta.estado == 'resuelta' %}
+      <button type="button" class="enlace mt-4" data-abrir-modal="modal-editar">{% icono 'pencil' 14 %}Editar descripción</button>
+    {% endif %}
+  </section>
+{% endif %}
+
+<section class="tarjeta historial">
+  <h3>{% icono 'clock-3' 19 %}Historial</h3>
+  <ol class="linea-tiempo">
+    {% for evento in eventos %}
+      <li>
+        <span class="marca-evento">{% icono_evento evento.tipo 14 %}</span>
+        <strong>{{ evento|etiqueta_evento }}</strong>
+        <p>{{ evento.texto }}</p>
+        <small>{{ evento.autor }} · {{ evento.creado_en|date:"d/m/Y" }} · {{ evento.creado_en|date:"H:i" }}</small>
+      </li>
+    {% endfor %}
+  </ol>
+</section>
+
+{% if es_admin %}
+  {# Cambiar estado: el JavaScript ajusta títulos y textos según el estado elegido (revisar, resolver o reabrir). #}
+  <dialog class="modal" id="modal-estado" aria-labelledby="modal-estado-titulo">
+    <form method="post" action="{% url 'alertas:cambiar_estado' alerta.pk %}" data-ajax novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="estado" value="">
+      <input type="hidden" name="estado_original" value="{{ alerta.estado }}">
+      <div class="cabeza-modal">
+        <h2 id="modal-estado-titulo" data-texto-titulo>Revisar alerta</h2>
+        <button type="button" aria-label="Cerrar" data-cerrar-modal>{% icono 'x' 24 %}</button>
+      </div>
+      <p class="descripcion">{{ alerta.plaza_nombre }} · {{ alerta.placa_visible }}<span data-texto-nuevo-estado></span></p>
+      <label class="campo">
+        <span data-texto-etiqueta>Nota de revisión (opcional)</span>
+        <textarea name="nota" class="entrada" maxlength="300" rows="5" data-contar="300"></textarea>
+        <span class="error-campo" data-error hidden></span>
+      </label>
+      <p class="contador-texto"><span data-contador>0</span>/300</p>
+      <div class="sugerencias" data-sugerencias hidden>
+        {% for texto in sugerencias %}
+          <button type="button" data-sugerencia>{{ texto }}</button>
+        {% endfor %}
+      </div>
+      <div class="acciones">
+        <button type="button" class="boton-secundario" data-cerrar-modal>Cancelar</button>
+        <button type="submit" class="boton" data-texto-boton>Marcar como revisada</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="modal-corregir" aria-labelledby="modal-corregir-titulo">
+    <form method="post" action="{% url 'alertas:corregir' alerta.pk %}" data-ajax novalidate>
+      {% csrf_token %}
+      <div class="cabeza-modal">
+        <h2 id="modal-corregir-titulo">Corregir placa</h2>
+        <button type="button" aria-label="Cerrar" data-cerrar-modal>{% icono 'x' 24 %}</button>
+      </div>
+      <p class="descripcion">
+        La corrección actualizará la lectura si este vehículo sigue en la plaza. La evidencia histórica permanece registrada.
+      </p>
+      <label class="campo">
+        <span>Placa correcta</span>
+        <input type="text" name="placa" class="entrada" value="{{ alerta.placa }}" maxlength="8" placeholder="ABC-1234"
+               autocomplete="off" data-mayusculas required>
+        <span class="error-campo" data-error hidden></span>
+      </label>
+      <div class="acciones">
+        <button type="button" class="boton-secundario" data-cerrar-modal>Cancelar</button>
+        <button type="submit" class="boton">Guardar corrección</button>
+      </div>
+    </form>
+  </dialog>
+
+  {% if alerta.estado == 'resuelta' %}
+    <dialog class="modal" id="modal-editar" aria-labelledby="modal-editar-titulo">
+      <form method="post" action="{% url 'alertas:editar_resolucion' alerta.pk %}" data-ajax novalidate>
+        {% csrf_token %}
+        <div class="cabeza-modal">
+          <h2 id="modal-editar-titulo">Editar descripción</h2>
+          <button type="button" aria-label="Cerrar" data-cerrar-modal>{% icono 'x' 24 %}</button>
+        </div>
+        <label class="campo">
+          <span>¿Cómo se resolvió?</span>
+          <textarea name="texto" class="entrada" maxlength="300" rows="5" data-contar="300">{{ alerta.resolucion }}</textarea>
+          <span class="error-campo" data-error hidden></span>
+        </label>
+        <p class="contador-texto"><span data-contador>0</span>/300</p>
+        <div class="acciones">
+          <button type="button" class="boton-secundario" data-cerrar-modal>Cancelar</button>
+          <button type="submit" class="boton">Guardar descripción</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% load static %}
+<script src="{% static 'zentry/js/alerta.js' %}"></script>
+{% endblock %}
