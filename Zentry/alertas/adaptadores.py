@@ -4,15 +4,17 @@ Adaptadores de los puertos de alertas.
 - EvidenciaLocal:      carpeta media/evidencias (desarrollo, SQLite).
 - EvidenciaS3:         bucket de Amazon S3 (producción). Variables: ZENTRY_S3_BUCKET,
                        ZENTRY_S3_PREFIJO (opcional) y las credenciales estándar de AWS.
-- NotificacionConsola: escribe el aviso en el log del servidor.
-- NotificacionSNS:     publica en un tema de Amazon SNS (ZENTRY_SNS_TOPIC_ARN).
-- NotificacionSES:     envía un correo con Amazon SES (ZENTRY_SES_ORIGEN, ZENTRY_SES_DESTINOS).
+- NotificacionConsola: escribe el aviso en el log del servidor (por defecto).
+- NotificacionSMS:     SMS con Amazon SNS al guardia o administrador (ZENTRY_SMS_DESTINOS).
+                       Cada SMS a Ecuador cuesta $0,31: se activa a propósito en el .env.
+- NotificacionSES:     correo con Amazon SES (RF-13, ZENTRY_SES_ORIGEN, ZENTRY_SES_DESTINOS).
 
 boto3 solo se importa si se usa un adaptador de Amazon.
 """
 import logging
 import os
 import re
+import unicodedata
 import uuid
 from pathlib import Path
 
@@ -97,18 +99,65 @@ class NotificacionConsola(PuertoNotificacion):
         log.warning('Nueva alerta · %s', _texto_alerta(alerta))
 
 
-class NotificacionSNS(PuertoNotificacion):
-    def __init__(self):
-        import boto3
+# Celulares de Ecuador: 10 dígitos que empiezan por 09 (como en el registro de residentes).
+_CELULAR_EC = re.compile(r'^(?:\+?593|0)(9\d{8})$')
 
-        self.tema = os.environ['ZENTRY_SNS_TOPIC_ARN']
-        self.cliente = boto3.client('sns')
+
+def numero_internacional(numero):
+    """'0991234567', '+593991234567' o '593 99 123 4567' -> '+593991234567' (formato que pide AWS)."""
+    coincidencia = _CELULAR_EC.match(re.sub(r'[\s-]', '', numero))
+    if not coincidencia:
+        raise ValueError(f'Celular no válido: {numero!r} (usa 09XXXXXXXX)')
+    return '+593' + coincidencia.group(1)
+
+
+def texto_sms(alerta):
+    """El aviso en un solo SMS: sin tildes ni símbolos y con 160 caracteres como máximo.
+
+    Un solo carácter fuera del alfabeto básico de los SMS (como «·» o «á») baja el
+    límite a 70 caracteres y el aviso se cobraría como 2 SMS.
+    """
+    texto = (f'Zentry: {alerta.get_resultado_display()} en la plaza {alerta.plaza_nombre}: '
+             f'{alerta.placa or "placa ilegible"} ({timezone.localtime(alerta.creada_en):%d/%m/%Y %H:%M})')
+    return unicodedata.normalize('NFKD', texto).encode('ascii', 'ignore').decode('ascii')[:160]
+
+
+class NotificacionSMS(PuertoNotificacion):
+    """
+    SMS con Amazon SNS a los celulares de ZENTRY_SMS_DESTINOS (separados por comas).
+    Usa las credenciales y la región estándar de AWS (AWS_DEFAULT_REGION en el .env).
+    """
+
+    def __init__(self, cliente=None, destinos=None):
+        if destinos is None:
+            destinos = os.environ.get('ZENTRY_SMS_DESTINOS', '').split(',')
+        self.destinos = [numero_internacional(d) for d in destinos if d.strip()]
+        if not self.destinos:
+            raise ValueError('Falta ZENTRY_SMS_DESTINOS con al menos un celular')
+        if cliente is None:
+            import boto3
+            cliente = boto3.client('sns')
+        self.cliente = cliente
 
     def notificar(self, alerta):
-        self.cliente.publish(TopicArn=self.tema, Subject='Zentry · nueva alerta', Message=_texto_alerta(alerta))
+        texto = texto_sms(alerta)
+        enviados = 0
+        for numero in self.destinos:
+            try:
+                self.cliente.publish(PhoneNumber=numero, Message=texto, MessageAttributes={
+                    # «Transactional» = aviso importante: el operador lo entrega con prioridad.
+                    'AWS.SNS.SMS.SMSType': {'DataType': 'String', 'StringValue': 'Transactional'},
+                })
+                enviados += 1
+            except Exception:  # noqa: BLE001  (si falla un número, se avisa igual a los demás)
+                log.exception('No se pudo enviar el SMS de la alerta %s al celular ...%s', alerta.pk, numero[-4:])
+        log.info('Alerta %s avisada por SMS a %s de %s celulares', alerta.pk, enviados, len(self.destinos))
+        return enviados
 
 
 class NotificacionSES(PuertoNotificacion):
+    """Correo con Amazon SES (RF-13, pedido del cliente en la Tarea 3)."""
+
     def __init__(self):
         import boto3
 

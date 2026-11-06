@@ -2,8 +2,8 @@
 Django==6.1.1
 djangorestframework==3.18.1
 Pillow==12.3.0            # recorte de la evidencia y pruebas
-# boto3                   # solo en producción, para S3 / SNS / SES (alertas/adaptadores.py)
-# psycopg[binary]         # solo si se usa PostgreSQL (Amazon RDS) con ZENTRY_DB_ENGINE=postgresql
+psycopg[binary]==3.3.8    # PostgreSQL en Amazon RDS (se activa con el archivo .env)
+boto3[crt]==1.43.125      # Amazon S3 (evidencia), SNS (SMS), SES (correo) y Secrets Manager; [crt] = sesión de `aws login`
 
 # Agente local (agente/ y camaras_virtuales.py)
 requests==2.34.2

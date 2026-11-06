@@ -3,9 +3,9 @@ Puertos (interfaces) del módulo de alertas. Las reglas de negocio solo conocen
 estas clases; el adaptador concreto se elige en settings.ZENTRY:
 
     'EVIDENCIA':    'alertas.adaptadores.EvidenciaLocal'   o  'alertas.adaptadores.EvidenciaS3'
-    'NOTIFICACION': 'alertas.adaptadores.NotificacionConsola', '...NotificacionSNS' o '...NotificacionSES'
+    'NOTIFICACION': 'alertas.adaptadores.NotificacionConsola', '...NotificacionSMS' o '...NotificacionSES'
 
-Así, pasar a Amazon (S3, SNS/SES) es cambiar la configuración, no el código.
+Así, pasar a Amazon (S3, SMS con SNS, correo con SES) es cambiar la configuración, no el código.
 """
 from functools import lru_cache
 
@@ -29,7 +29,7 @@ class PuertoEvidencia:
 
 
 class PuertoNotificacion:
-    """Aviso a canales externos cuando se crea una alerta (correo, SMS, push)."""
+    """Aviso al guardia cuando se crea una alerta grave (consola, SMS o correo)."""
 
     def notificar(self, alerta):
         raise NotImplementedError

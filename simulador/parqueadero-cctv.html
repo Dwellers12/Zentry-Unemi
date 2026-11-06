@@ -1,0 +1,2251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parqueadero CCTV · Simulador</title>
+<!--
+  Simulador de parqueadero subterráneo visto por cámaras CCTV.
+  Entorno de pruebas para detección de plazas, lectura de placas y validación de estacionamiento.
+  Un solo archivo; Three.js se carga desde cdn.jsdelivr.net.
+
+  Atajos: 1 dividida · 2 cámara 1 · 3 cámara 2 · 4 cámara libre (depuración) · H ocultar/mostrar panel.
+  API para automatización (consola / Playwright / Selenium): window.parqueadero (ver al final del script).
+-->
+<style>
+:root{
+  --pw:360px;
+  --p1:#151a21; --p2:#1b222b; --p3:#232b36; --bd:#2c3542;
+  --tx:#dbe2ea; --mu:#8d99a8; --ac:#3d8bfd; --ac2:#2563eb; --ok:#22c55e; --ko:#ef4444; --wa:#f59e0b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--tx);font:13px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif}
+#app{display:flex;height:100%;width:100%}
+#panel{width:var(--pw);flex:0 0 var(--pw);display:flex;flex-direction:column;min-height:0;background:var(--p1);border-right:1px solid var(--bd);transition:margin-left .22s ease;z-index:2}
+body.sin-panel #panel{margin-left:calc(-1 * var(--pw))}
+#vista{position:relative;flex:1 1 auto;min-width:0;background:#000;overflow:hidden}
+#vista canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+#capaOverlay{pointer-events:none}
+.cab{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--bd);background:var(--p2)}
+.cab .t{font-weight:700;font-size:14px}
+.cab .s{color:var(--mu);font-size:11.5px}
+.cab .esp{flex:1}
+.scroll{overflow-y:auto;flex:1;min-height:0;padding:4px 0 30px}
+details.sec{border-bottom:1px solid var(--bd)}
+details.sec>summary{cursor:pointer;list-style:none;padding:10px 14px;font-weight:650;display:flex;align-items:center;gap:8px;user-select:none}
+details.sec>summary::-webkit-details-marker{display:none}
+details.sec>summary::before{content:"▸";color:var(--mu);display:inline-block;width:10px;transition:transform .15s}
+details.sec[open]>summary::before{transform:rotate(90deg)}
+details.sec>summary .n{margin-left:auto;color:var(--mu);font-weight:500;font-size:12px}
+.cuerpo{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px}
+label.l{display:block;color:var(--mu);font-size:11.5px;margin-bottom:3px}
+input[type=text],input[type=number],select{width:100%;background:var(--p3);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;font:inherit;outline:none}
+input:focus,select:focus{border-color:var(--ac)}
+select option:disabled{color:#6b7684}
+button{background:var(--p3);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer;white-space:nowrap}
+button:hover{border-color:#4a5667;background:#29323e}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.prim{background:var(--ac2);border-color:var(--ac2);color:#fff;font-weight:600}
+button.prim:hover{background:#1d4ed8}
+button.peligro{color:#fca5a5}
+button.peligro:hover{border-color:var(--ko)}
+button.ico{padding:4px 9px}
+.fila{display:flex;gap:8px;align-items:center}
+.fila>*{min-width:0}
+.crece{flex:1}
+.dos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg{display:flex;border:1px solid var(--bd);border-radius:7px;overflow:hidden}
+.seg button{flex:1;border:0;border-radius:0;border-right:1px solid var(--bd);background:var(--p2);padding:7px 4px;font-size:12px;white-space:normal}
+.seg button:last-child{border-right:0}
+.seg button.on,#btnLibre.on{background:var(--ac2);border-color:var(--ac2);color:#fff}
+kbd{font:10.5px ui-monospace,monospace;background:rgba(255,255,255,.12);border-radius:3px;padding:0 4px;margin-left:5px;color:inherit}
+.sw{display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:12.5px}
+.sw input{margin:2px 0 0}
+.nota{color:var(--mu);font-size:11.5px}
+.aviso{font-size:11.5px;margin-top:3px;min-height:1.1em}
+.aviso.ok{color:#86efac}.aviso.wa{color:#fcd34d}.aviso.ko{color:#fca5a5}
+.paleta{display:flex;flex-wrap:wrap;gap:6px}
+.paleta button{width:20px;height:20px;padding:0;border-radius:50%;border:2px solid rgba(255,255,255,.2)}
+.paleta button.on{border-color:#fff;box-shadow:0 0 0 1px #000 inset}
+input[type=color]{width:38px;height:30px;padding:0 2px;border:1px solid var(--bd);border-radius:6px;background:var(--p3);cursor:pointer;flex:0 0 auto}
+.rango{display:grid;grid-template-columns:1fr 70px;gap:2px 8px;align-items:center}
+.rango label{grid-column:1/-1;color:var(--mu);font-size:11.5px;display:flex;justify-content:space-between;gap:6px}
+.rango input[type=range]{width:100%;accent-color:var(--ac);margin:0}
+.rango input[type=number]{padding:3px 5px;font-size:12px}
+details.sub{background:var(--p2);border:1px solid var(--bd);border-radius:8px}
+details.sub>summary{cursor:pointer;padding:8px 10px;font-weight:600;font-size:12.5px}
+details.sub>.cuerpo{padding:4px 10px 10px}
+.lista{display:flex;flex-direction:column;gap:8px}
+.veh{background:var(--p2);border:1px solid var(--bd);border-left:4px solid var(--ok);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:5px}
+.veh.mal{border-left-color:var(--ko)}
+.veh.editando{outline:1px solid var(--ac)}
+.veh .top{display:flex;align-items:center;gap:8px}
+.veh .chip{width:14px;height:14px;border-radius:4px;border:1px solid rgba(255,255,255,.35);flex:0 0 auto}
+.veh .placa{font:700 13px ui-monospace,Consolas,monospace;background:#fff;color:#111;border-radius:3px;padding:0 5px;letter-spacing:.5px}
+.veh .meta{color:var(--mu);font-size:11.5px}
+.veh .meta b{color:var(--tx);font-weight:600}
+.veh .est{font-size:11.5px}
+.veh .est.ok{color:#86efac}.veh .est.ko{color:#fca5a5}
+.veh .acc{display:flex;gap:6px}
+.veh .acc select{flex:1;padding:3px 6px;font-size:12px}
+.veh .acc button{padding:3px 8px;font-size:12px}
+.vacio{color:var(--mu);font-size:12px;text-align:center;padding:12px;border:1px dashed var(--bd);border-radius:8px}
+#btnMostrar{position:absolute;left:10px;top:10px;z-index:5;display:none;opacity:0;transition:opacity .3s;background:rgba(20,24,30,.85);font-size:16px;padding:3px 10px}
+body.sin-panel #btnMostrar{display:block}
+body.sin-panel.raton #btnMostrar{opacity:.9}
+#toasts{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;z-index:6;pointer-events:none;width:max-content;max-width:90%}
+.toast{background:rgba(17,22,29,.95);border:1px solid var(--bd);border-left:4px solid var(--ac);padding:7px 12px;border-radius:7px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.45);animation:ent .2s ease}
+.toast.ok{border-left-color:var(--ok)}.toast.ko{border-left-color:var(--ko)}.toast.wa{border-left-color:var(--wa)}
+@keyframes ent{from{opacity:0;transform:translateY(6px)}}
+#errorCarga{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#0d1117;z-index:99;padding:24px;text-align:center}
+#errorCarga h2{margin:0 0 8px}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <div class="cab">
+      <div><div class="t">Parqueadero · CCTV</div><div class="s">Entorno de pruebas para visión por computadora</div></div>
+      <div class="esp"></div>
+      <button id="btnOcultar" class="ico" title="Ocultar panel (H)">◀</button>
+    </div>
+    <div class="scroll">
+
+      <details class="sec" open>
+        <summary>Vista</summary>
+        <div class="cuerpo">
+          <div class="seg" id="segModo">
+            <button data-modo="dividida">Dividida<kbd>1</kbd></button>
+            <button data-modo="cam1">Cámara 1<kbd>2</kbd></button>
+            <button data-modo="cam2">Cámara 2<kbd>3</kbd></button>
+          </div>
+          <button data-modo="libre" id="btnLibre">Cámara libre · depuración<kbd>4</kbd></button>
+          <div><label class="l" for="selCalidad">Calidad gráfica</label>
+            <select id="selCalidad">
+              <option value="alta">Alta: oclusión ambiental, bloom y sombras de todas las luminarias</option>
+              <option value="media">Media: bloom y sombras de las luminarias sobre las plazas</option>
+              <option value="baja">Baja: sin posprocesado, la más rápida</option>
+            </select></div>
+          <label class="sw"><input type="checkbox" id="chkOverlay" checked><span>Overlay CCTV (nombre de cámara, fecha y hora, ruido y viñeta)</span></label>
+          <div class="nota"><kbd>H</kbd> oculta o muestra el panel · <span id="fps">– fps</span></div>
+        </div>
+      </details>
+
+      <details class="sec" open id="secInvocar">
+        <summary><span id="tituloInvocar">Invocar vehículo</span></summary>
+        <div class="cuerpo" id="formVeh">
+          <div class="dos">
+            <div><label class="l" for="fPlaza">Plaza destino</label><select id="fPlaza"></select></div>
+            <div><label class="l" for="fTipo">Tipo</label>
+              <select id="fTipo"><option value="sedan">Sedán</option><option value="suv">SUV</option><option value="camioneta">Camioneta</option></select></div>
+          </div>
+          <div>
+            <label class="l" for="fPlaca">Número de placa</label>
+            <div class="fila"><input type="text" id="fPlaca" class="crece" maxlength="12" autocomplete="off" spellcheck="false"><button id="btnPlacaAl" type="button">Placa aleatoria</button></div>
+            <div class="aviso" id="avisoPlaca"></div>
+          </div>
+          <div class="dos">
+            <div><label class="l" for="fOrient">Orientación</label>
+              <select id="fOrient"><option value="frente">De frente</option><option value="reversa">De reversa</option></select></div>
+            <div><label class="l" for="fColor">Color</label>
+              <div class="fila"><input type="color" id="fColor" value="#b9bdc2"><span class="nota" id="nomColor">Plata</span></div></div>
+          </div>
+          <div class="paleta" id="paleta"></div>
+          <label class="sw"><input type="checkbox" id="fDistinta"><span>Estacionar en plaza distinta a la asignada</span></label>
+          <div id="grpAsignada" hidden><label class="l" for="fAsignada">Plaza asignada (la real es la «Plaza destino»)</label><select id="fAsignada"></select></div>
+          <details class="sub" id="detMal">
+            <summary>Estacionar mal a propósito</summary>
+            <div class="cuerpo" id="rangosMal">
+              <div class="dos">
+                <div><label class="l" for="fCaso">Caso</label>
+                  <select id="fCaso"><option value="ninguno">Ninguno</option><option value="sobre_linea">Sobre la línea lateral</option><option value="dos_plazas">Ocupando dos plazas</option></select></div>
+                <div><label class="l" for="fLado">Hacia</label>
+                  <select id="fLado"><option value="siguiente">Plaza siguiente (+)</option><option value="anterior">Plaza anterior (−)</option></select></div>
+              </div>
+              <button id="btnBienEst" type="button">Restablecer (bien estacionado)</button>
+            </div>
+          </details>
+          <label class="sw"><input type="checkbox" id="fAnimar" checked><span>Animar la entrada desde el pasillo</span></label>
+          <div class="fila"><button id="btnInvocar" class="prim crece" type="button">Invocar vehículo</button><button id="btnCancelar" type="button" hidden>Cancelar</button></div>
+          <div class="aviso" id="avisoForm"></div>
+        </div>
+      </details>
+
+      <details class="sec" open>
+        <summary>Vehículos en escena <span class="n" id="cuentaVeh">0 / 12</span></summary>
+        <div class="cuerpo">
+          <div class="lista" id="listaVeh"></div>
+          <div class="nota">«Mover» cambia la plaza real y conserva la asignada; usa «Editar» para cambiar ambas.</div>
+          <div class="fila"><button id="btnAleatorio" class="crece">Llenar aleatoriamente</button><button id="btnVaciar" class="peligro crece">Vaciar parqueadero</button></div>
+        </div>
+      </details>
+
+      <details class="sec">
+        <summary>Iluminación</summary>
+        <div class="cuerpo">
+          <div class="seg" id="segIlum">
+            <button data-ilum="normal">Normal</button>
+            <button data-ilum="baja">Poca luz</button>
+            <button data-ilum="contraluz">Contraluz / reflejos</button>
+          </div>
+          <div class="nota" id="descIlum"></div>
+          <label class="sw"><input type="checkbox" id="chkSombras" checked><span>Sombras</span></label>
+          <div><label class="l" for="selLineas">Color de las líneas de las plazas</label>
+            <select id="selLineas"><option value="amarillo">Amarillo</option><option value="blanco">Blanco</option></select></div>
+        </div>
+      </details>
+
+      <details class="sec">
+        <summary>Ajustes de cámara</summary>
+        <div class="cuerpo">
+          <div class="seg" id="segCam"><button data-cam="0">Cámara 1</button><button data-cam="1">Cámara 2</button></div>
+          <div id="slidersCam" style="display:flex;flex-direction:column;gap:8px"></div>
+          <div class="nota" id="infoCam"></div>
+          <div class="fila"><button id="btnResetCam" class="crece">Restablecer esta cámara</button><button id="btnResetCams" class="crece">Restablecer ambas</button></div>
+        </div>
+      </details>
+
+      <details class="sec" open>
+        <summary>Verdad de terreno y capturas</summary>
+        <div class="cuerpo">
+          <div class="fila"><button id="btnExportar" class="prim crece">Exportar estado</button><button id="btnImportar" class="crece">Importar escenario</button></div>
+          <input type="file" id="archivo" accept=".json,application/json" hidden>
+          <div><label class="l" for="selRes">Resolución de captura y de referencia para el JSON</label>
+            <select id="selRes">
+              <option value="1280x720">1280 × 720</option>
+              <option value="1920x1080" selected>1920 × 1080 (Full HD)</option>
+              <option value="2560x1440">2560 × 1440</option>
+              <option value="3840x2160">3840 × 2160 (4K)</option>
+            </select></div>
+          <button id="btnCapturar">Capturar ambas cámaras (PNG)</button>
+          <div class="nota">El JSON incluye las plazas, los parámetros de cada cámara (intrínsecos y extrínsecos) y, por vehículo, la proyección de sus placas en cada cámara a la resolución elegida. La captura respeta el interruptor del overlay.</div>
+        </div>
+      </details>
+
+    </div>
+  </aside>
+  <main id="vista">
+    <button id="btnMostrar" title="Mostrar panel (H)">☰</button>
+    <div id="toasts"></div>
+  </main>
+</div>
+
+<div id="errorCarga"><div>
+  <h2>No se pudo iniciar el simulador</h2>
+  <p>Three.js se carga desde <b>cdn.jsdelivr.net</b>. Revisa la conexión a Internet y vuelve a abrir el archivo en un navegador actual (Chrome, Edge o Firefox).</p>
+  <p class="nota" id="detalleError"></p>
+</div></div>
+<script>
+  // Aviso si el módulo principal no llega a arrancar (sin conexión al CDN, navegador antiguo, etc.)
+  function __mostrarErrorCarga(msg) {
+    if (window.__parqueaderoListo) return;
+    document.getElementById('errorCarga').style.display = 'flex';
+    if (msg) document.getElementById('detalleError').textContent = msg;
+  }
+  window.addEventListener('error', (e) => __mostrarErrorCarga(e.message));
+  setTimeout(() => __mostrarErrorCarga('Tiempo de espera agotado al cargar Three.js.'), 15000);
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+// ============================================================================
+// Utilidades
+// ============================================================================
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const redondear = (n, d = 3) => { const f = 10 ** d; return Math.round(n * f) / f; };
+const cm = (m) => Math.round(m * 100);
+const suave = (t) => t * t * (3 - 2 * t);
+function normAng(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a <= -Math.PI) a += 2 * Math.PI; return a; }
+function lerpAng(a, b, t) { return a + normAng(b - a) * t; }
+function escaparHTML(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function mulberry32(a) {
+  return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function lienzo(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
+function rectRedondeado(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function aviso(msg, tipo = '') {
+  const el = document.createElement('div'); el.className = 'toast ' + tipo; el.textContent = msg;
+  $('#toasts').appendChild(el); setTimeout(() => el.remove(), 3800);
+}
+function descargar(blob, nombre) {
+  const url = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+function sello(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+
+// Geometría 2D en el plano del piso (x, z)
+function areaPoligono(p) { let s = 0; for (let i = 0; i < p.length; i++) { const [x1, y1] = p[i], [x2, y2] = p[(i + 1) % p.length]; s += x1 * y2 - x2 * y1; } return s / 2; }
+function ccw(p) { return areaPoligono(p) < 0 ? p.slice().reverse() : p; }
+function recortar(sujeto, recorte) { // Sutherland–Hodgman; 'recorte' convexo y antihorario
+  let salida = sujeto;
+  for (let i = 0; i < recorte.length && salida.length; i++) {
+    const a = recorte[i], b = recorte[(i + 1) % recorte.length];
+    const dentro = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= 0;
+    const corte = (p, q) => {
+      const den = (p[0] - q[0]) * (a[1] - b[1]) - (p[1] - q[1]) * (a[0] - b[0]);
+      const t = ((p[0] - a[0]) * (a[1] - b[1]) - (p[1] - a[1]) * (a[0] - b[0])) / den;
+      return [p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])];
+    };
+    const entrada = salida; salida = [];
+    for (let j = 0; j < entrada.length; j++) {
+      const p = entrada[j], q = entrada[(j + 1) % entrada.length], pd = dentro(p), qd = dentro(q);
+      if (pd) { salida.push(p); if (!qd) salida.push(corte(p, q)); } else if (qd) salida.push(corte(p, q));
+    }
+  }
+  return salida;
+}
+function areaInterseccion(a, b) { const r = recortar(a, ccw(b)); return r.length >= 3 ? Math.abs(areaPoligono(r)) : 0; }
+
+// ============================================================================
+// Dimensiones del parqueadero (metros)
+// X a lo largo de las filas, Y hacia arriba, Z transversal. Origen: centro del pasillo, a nivel del piso.
+// Fila A (P1–P6) en z negativo, fila B (P7–P12) en z positivo.
+// ============================================================================
+const PLAZA_ANCHO = 2.5, PLAZA_LARGO = 5.0, PASILLO = 6.0, POR_FILA = 6;
+const LARGO_FILA = PLAZA_ANCHO * POR_FILA;        // 15 m
+const Z_FRENTE = PASILLO / 2;                      // 3 m: borde de las plazas hacia el pasillo
+const Z_FONDO = Z_FRENTE + PLAZA_LARGO;            // 8 m: línea de fondo
+const MURO_Z = Z_FONDO + 0.6;                      // cara interior de los muros de fondo
+const MURO_X = LARGO_FILA / 2 + 3.5;               // cara interior de los muros laterales
+const ALTO_TECHO = 3.2;
+const LINEA = 0.12;
+const RELACION = 16 / 9;
+const TOL_ROT = 5;                                 // grados de desvío tolerados
+
+const PLAZAS = [];
+for (let i = 0; i < 12; i++) {
+  const filaA = i < POR_FILA, k = i % POR_FILA;
+  const s = filaA ? -1 : 1;        // sentido hacia el muro de fondo (z)
+  const latX = filaA ? 1 : -1;     // sentido "hacia la plaza siguiente" (x). Fila B numerada en serpentina: P7 frente a P6.
+  const x = filaA ? -LARGO_FILA / 2 + PLAZA_ANCHO * (k + 0.5) : LARGO_FILA / 2 - PLAZA_ANCHO * (k + 0.5);
+  PLAZAS.push({ id: 'P' + (i + 1), i, k, fila: filaA ? 'A' : 'B', x, z: s * (Z_FRENTE + PLAZA_LARGO / 2), s, latX });
+}
+const plazaPorId = (id) => PLAZAS.find((p) => p.id === id) || null;
+function vecina(p, signo) { const k = p.k + signo; return k < 0 || k >= POR_FILA ? null : PLAZAS[(p.fila === 'A' ? 0 : POR_FILA) + k]; }
+function rectPlaza(p) {
+  const x0 = p.x - PLAZA_ANCHO / 2, x1 = p.x + PLAZA_ANCHO / 2, z0 = p.z - PLAZA_LARGO / 2, z1 = p.z + PLAZA_LARGO / 2;
+  return ccw([[x0, z0], [x1, z0], [x1, z1], [x0, z1]]);
+}
+
+// ============================================================================
+// Renderizador y escena
+// ============================================================================
+const vista = $('#vista');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;   // las sombras solo se recalculan cuando algo cambia
+vista.prepend(renderer.domElement);
+const capaOverlay = document.createElement('canvas');
+capaOverlay.id = 'capaOverlay';
+renderer.domElement.after(capaOverlay);
+const octx = capaOverlay.getContext('2d');
+const ANISO = renderer.capabilities.getMaxAnisotropy();
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x030303);
+
+let necesitaRender = true, sombrasSucias = true;
+const pedirRender = () => { necesitaRender = true; };
+const marcarSombras = () => { sombrasSucias = true; necesitaRender = true; };
+
+// ============================================================================
+// Ruido y texturas procedurales (semillas fijas: el entorno es idéntico en cada carga)
+// ============================================================================
+function texturaDe(c, { srgb = true, repetir = false } = {}) {
+  const t = new THREE.CanvasTexture(c);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  if (repetir) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = ANISO;
+  return t;
+}
+function conRepeticion(t, ru, rv) { const c = t.clone(); c.repeat.set(ru, rv); c.needsUpdate = true; return c; }
+// Ruido de valor periódico (se repite sin costuras) y fBm en [0, 1]
+function ruidoPeriodico(periodo, semilla) {
+  const r = mulberry32(semilla), t = new Float32Array(periodo * periodo);
+  for (let i = 0; i < t.length; i++) t[i] = r();
+  return (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi;
+    const x0 = ((xi % periodo) + periodo) % periodo, y0 = ((yi % periodo) + periodo) % periodo;
+    const x1 = (x0 + 1) % periodo, y1 = (y0 + 1) % periodo;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const a = t[y0 * periodo + x0], b = t[y0 * periodo + x1], c = t[y1 * periodo + x0], d = t[y1 * periodo + x1];
+    return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+  };
+}
+function fbm(tam, octavas, semilla, periodo0 = 4, persistencia = 0.5) {
+  const out = new Float32Array(tam * tam); let amp = 1, suma = 0;
+  for (let o = 0; o < octavas; o++) {
+    const p = periodo0 << o, n = ruidoPeriodico(p, semilla + o * 131), k = p / tam;
+    for (let y = 0; y < tam; y++) for (let x = 0; x < tam; x++) out[y * tam + x] += amp * n(x * k, y * k);
+    suma += amp; amp *= persistencia;
+  }
+  for (let i = 0; i < out.length; i++) out[i] /= suma;
+  return out;
+}
+function lienzoCampo(campo, tam, fn) {
+  const [c, g] = lienzo(tam, tam), img = g.createImageData(tam, tam), d = img.data;
+  for (let i = 0; i < campo.length; i++) { const p = fn(campo[i]); d[i * 4] = p[0]; d[i * 4 + 1] = p[1]; d[i * 4 + 2] = p[2]; d[i * 4 + 3] = p[3]; }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+function lienzoGrano(tam, semilla) {
+  const [c, g] = lienzo(tam, tam), img = g.createImageData(tam, tam), r = mulberry32(semilla);
+  for (let i = 0; i < img.data.length; i += 4) { const v = r() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+function texNormal(alturas, tam, fuerza) {
+  const [c, g] = lienzo(tam, tam), img = g.createImageData(tam, tam), d = img.data;
+  const h = (x, y) => alturas[((y + tam) % tam) * tam + ((x + tam) % tam)];
+  for (let y = 0; y < tam; y++) for (let x = 0; x < tam; x++) {
+    const dx = (h(x + 1, y) - h(x - 1, y)) * fuerza, dy = (h(x, y - 1) - h(x, y + 1)) * fuerza;
+    const l = Math.hypot(dx, dy, 1), i = (y * tam + x) * 4;
+    d[i] = (-dx / l * 0.5 + 0.5) * 255; d[i + 1] = (-dy / l * 0.5 + 0.5) * 255; d[i + 2] = (0.5 / l + 0.5) * 255; d[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = ANISO;
+  return t;
+}
+function texTexto(txt, { w = 512, h = 256, fondo = null, color = '#fff', escala = 0.8, borde = null }) {
+  const [c, g] = lienzo(w, h);
+  if (fondo) {
+    g.fillStyle = fondo; rectRedondeado(g, 0, 0, w, h, h * 0.12); g.fill();
+    if (borde) { g.strokeStyle = borde; g.lineWidth = h * 0.05; rectRedondeado(g, h * 0.06, h * 0.06, w - h * 0.12, h - h * 0.12, h * 0.08); g.stroke(); }
+  }
+  const tam = Math.round(h * escala);
+  g.font = `900 ${tam}px "Arial Black", Arial, "Liberation Sans", Helvetica, sans-serif`;
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = color;
+  const sx = Math.min(1, (w * 0.9) / g.measureText(txt).width);
+  g.save(); g.translate(w / 2, h * 0.53); g.scale(sx, 1); g.fillText(txt, 0, 0); g.restore();
+  return texturaDe(c);
+}
+// Placa ecuatoriana: fondo blanco, borde, "ECUADOR" arriba y caracteres negros grandes y condensados.
+function dibujarPlaca(c, texto) {
+  const g = c.getContext('2d'), W = c.width, H = c.height;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+  const m = W * 0.018;
+  g.lineWidth = W * 0.02; g.strokeStyle = '#111';
+  rectRedondeado(g, m, m, W - 2 * m, H - 2 * m, W * 0.03); g.stroke();
+  g.fillStyle = '#1b1b1b'; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  g.font = `700 ${Math.round(H * 0.15)}px Arial, "Liberation Sans", Helvetica, sans-serif`;
+  g.fillText('ECUADOR', W / 2, H * 0.25);
+  const t = String(texto || '').toUpperCase();
+  g.font = `900 ${Math.round(H * 0.72)}px "Arial Black", Arial, "Liberation Sans", Helvetica, sans-serif`;
+  const sx = Math.min(1, (W * 0.88) / Math.max(1, g.measureText(t).width));
+  g.save(); g.translate(W / 2, H * 0.87); g.scale(sx, 1); g.fillStyle = '#0a0a0a'; g.fillText(t, 0, 0); g.restore();
+}
+function texDestello() {
+  const [c, g] = lienzo(128, 128);
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,250,240,0.55)'); gr.addColorStop(1, 'rgba(255,245,230,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  return texturaDe(c);
+}
+// UV en coordenadas de mundo para que cada superficie tenga la escala física correcta
+function uvMundo(geo, tileU = 3, tileV = tileU) {
+  const pos = geo.attributes.position, nor = geo.attributes.normal, uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const nx = Math.abs(nor.getX(i)), ny = Math.abs(nor.getY(i));
+    const [u, v] = nx > 0.5 ? [z, y] : ny > 0.5 ? [x, z] : [x, y];
+    uv.setXY(i, u / tileU, v / tileV);
+  }
+  uv.needsUpdate = true;
+  return geo;
+}
+
+// Relieve fino de concreto (poros y áridos), compartido por piso, muros y techo
+const normalConcreto = (() => {
+  const T = 512, h = fbm(T, 6, 5, 8, 0.55), r = mulberry32(6);
+  for (let i = 0; i < 1600; i++) {
+    const cx = Math.floor(r() * T), cy = Math.floor(r() * T), rad = 0.8 + r() * 2.2, prof = 0.05 + r() * 0.2, R = Math.ceil(rad * 2.5);
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      const k = ((cy + dy + T) % T) * T + ((cx + dx + T) % T);
+      h[k] -= prof * Math.exp(-(dx * dx + dy * dy) / (rad * rad));
+    }
+  }
+  return texNormal(h, T, 10);
+})();
+
+// ---------------------------------------------------------------------------
+// Piso: una textura única de 22 × 17,2 m con manchas, huellas, juntas y demarcación desgastada
+// ---------------------------------------------------------------------------
+const PISO_W = 3072, PISO_H = 2400, KX = PISO_W / (2 * MURO_X), KZ = PISO_H / (2 * MURO_Z);
+const aPiso = (x, z) => [(x + MURO_X) * KX, (z + MURO_Z) * KZ];
+const rndPiso = mulberry32(2024);
+const MANCHAS = [];
+for (const p of PLAZAS) for (const ext of [-1, 1]) {
+  if (rndPiso() < 0.85) MANCHAS.push({ x: p.x + (rndPiso() - 0.5) * 0.6, z: p.z + ext * (1.2 + rndPiso() * 0.7), r: 0.16 + rndPiso() * 0.3, semilla: Math.floor(rndPiso() * 1e6) });
+}
+for (let i = 0; i < 7; i++) MANCHAS.push({ x: (rndPiso() - 0.5) * 19, z: (rndPiso() - 0.5) * 4.5, r: 0.08 + rndPiso() * 0.18, semilla: Math.floor(rndPiso() * 1e6) });
+const HUELLAS = [];
+for (const zc of [-1.3, 1.3]) for (const d of [-0.78, 0.78]) {
+  const pts = [];
+  for (let x = -MURO_X - 8; x <= MURO_X; x += 0.5) pts.push([x, zc + d + Math.sin(x * 0.33 + zc * 2) * 0.12]);
+  HUELLAS.push({ pts, ancho: 0.24, alfa: 0.07 });
+}
+for (const p of PLAZAS) for (const d of [-0.78, 0.78]) {
+  const carril = -p.s * 1.3;
+  HUELLAS.push({ pts: bezier([p.x - 6, carril + d], [p.x - 1.8, carril + d], [p.x + d, p.z - p.s * 4.2], [p.x + d, p.z - p.s * 0.8], 30), ancho: 0.2, alfa: 0.05 });
+}
+function trazoMundo(g, pts) { g.beginPath(); pts.forEach(([x, z], i) => { const [px, py] = aPiso(x, z); if (i) g.lineTo(px, py); else g.moveTo(px, py); }); }
+function rectMundo(g, x0, z0, x1, z1) {
+  const [a, b] = aPiso(Math.min(x0, x1), Math.min(z0, z1)), [c, d] = aPiso(Math.max(x0, x1), Math.max(z0, z1));
+  g.fillRect(a, b, c - a, d - b);
+}
+function dibujarMancha(g, m, rgb, factor = 1) {
+  const r = mulberry32(m.semilla), [cx, cy] = aPiso(m.x, m.z), R = m.r * KX;
+  for (let k = 0; k < 10; k++) {
+    const ox = (r() - 0.5) * R * 1.3, oy = (r() - 0.5) * R * 1.3, rr = R * (0.3 + r() * 0.7), a = Math.min(1, (0.1 + r() * 0.16) * factor);
+    const gr = g.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, rr);
+    gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(0.65, `rgba(${rgb},${a * 0.55})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = gr; g.fillRect(cx + ox - rr, cy + oy - rr, 2 * rr, 2 * rr);
+  }
+}
+function dibujarHuellas(g, factor = 1, rgb = '26,24,22') {
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  for (const h of HUELLAS) for (const [w, a] of [[1.7, 0.2], [1.25, 0.3], [0.85, 0.4], [0.5, 0.5]]) {
+    g.strokeStyle = `rgba(${rgb},${Math.min(1, h.alfa * a * factor)})`; g.lineWidth = h.ancho * w * KX;
+    trazoMundo(g, h.pts); g.stroke();
+  }
+}
+function flecha(g, x, z, dir) {
+  const pts = [[-1.0, -0.09], [0.35, -0.09], [0.35, -0.26], [1.0, 0], [0.35, 0.26], [0.35, 0.09], [-1.0, 0.09]];
+  trazoMundo(g, pts.map(([a, b]) => [x + a * dir, z + b])); g.closePath(); g.fill();
+}
+const manchadoPiso = lienzoCampo(fbm(256, 5, 71, 3, 0.55), 256, (v) => v < 0.5 ? [40, 38, 34, (0.5 - v) * 2 * 85] : [245, 242, 235, (v - 0.5) * 2 * 45]);
+function pintarBasePiso() {
+  const [c, g] = lienzo(PISO_W, PISO_H), r = mulberry32(17);
+  g.fillStyle = '#8b8984'; g.fillRect(0, 0, PISO_W, PISO_H);
+  g.drawImage(manchadoPiso, 0, 0, PISO_W, PISO_H);
+  const fino = lienzoCampo(fbm(256, 4, 72, 6, 0.6), 256, (v) => v < 0.5 ? [50, 48, 44, (0.5 - v) * 2 * 45] : [232, 230, 222, (v - 0.5) * 2 * 28]);
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) g.drawImage(fino, (i * PISO_W) / 4, (j * PISO_H) / 4, PISO_W / 4, PISO_H / 4);
+  g.globalAlpha = 0.07; g.fillStyle = g.createPattern(lienzoGrano(256, 3), 'repeat'); g.fillRect(0, 0, PISO_W, PISO_H); g.globalAlpha = 1;
+  g.fillStyle = 'rgba(232,228,220,0.35)';
+  for (let i = 0; i < 45000; i++) { const s = 1 + r() * 2; g.fillRect(r() * PISO_W, r() * PISO_H, s, s); }
+  g.fillStyle = 'rgba(48,46,42,0.35)';
+  for (let i = 0; i < 45000; i++) { const s = 1 + r() * 2; g.fillRect(r() * PISO_W, r() * PISO_H, s, s); }
+  // juntas de dilatación cortadas en la losa
+  const juntas = [[[-MURO_X, -Z_FRENTE], [MURO_X, -Z_FRENTE]], [[-MURO_X, Z_FRENTE], [MURO_X, Z_FRENTE]], ...[-5.7, 0.3, 6.3].map((x) => [[x, -Z_FRENTE], [x, Z_FRENTE]])];
+  for (const [a, b] of juntas) {
+    g.lineWidth = 2.5; g.strokeStyle = 'rgba(34,32,29,0.5)'; trazoMundo(g, [a, b]); g.stroke();
+    g.save(); g.translate(1.5, 1.5); g.lineWidth = 1.2; g.strokeStyle = 'rgba(215,210,200,0.2)'; trazoMundo(g, [a, b]); g.stroke(); g.restore();
+  }
+  for (const m of MANCHAS) dibujarMancha(g, m, '24,21,17');
+  dibujarHuellas(g);
+  for (const x of [-8.75, 8.75]) {   // sumideros
+    g.fillStyle = '#2a2a28'; rectMundo(g, x - 0.3, -0.2, x + 0.3, 0.2);
+    g.fillStyle = '#6d6c68';
+    for (let k = -0.26; k <= 0.26; k += 0.04) rectMundo(g, x + k - 0.008, -0.17, x + k + 0.008, 0.17);
+  }
+  return c;
+}
+const lienzoBasePiso = pintarBasePiso();
+const [lienzoPintura, gPintura] = lienzo(PISO_W, PISO_H);
+const mascaraDesgaste = lienzoCampo(fbm(256, 4, 90, 4, 0.55), 256, (v) => [0, 0, 0, v > 0.56 ? Math.min(255, (v - 0.56) * 1100) : 0]);
+function pintarDemarcacion(colorLinea) {
+  const g = gPintura;
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, PISO_W, PISO_H);
+  g.fillStyle = colorLinea;
+  for (const s of [-1, 1]) {
+    for (let j = 0; j <= POR_FILA; j++) { const x = -LARGO_FILA / 2 + j * PLAZA_ANCHO; rectMundo(g, x - LINEA / 2, s * Z_FRENTE, x + LINEA / 2, s * Z_FONDO); }
+    rectMundo(g, -LARGO_FILA / 2 - LINEA / 2, s * (Z_FONDO - LINEA / 2), LARGO_FILA / 2 + LINEA / 2, s * (Z_FONDO + LINEA / 2));
+  }
+  g.fillStyle = '#e9e8e2';
+  for (let x = -9; x <= 9; x += 2) rectMundo(g, x - 0.5, -0.05, x + 0.5, 0.05);
+  for (const [x, z, d] of [[-6.5, 1.5, 1], [3.5, 1.5, 1], [-3.5, -1.5, -1], [6.5, -1.5, -1]]) flecha(g, x, z, d);
+  for (const p of PLAZAS) {   // número grande, legible desde el pasillo
+    const [cx, cy] = aPiso(p.x, p.z - p.s * 1.3);
+    g.save(); g.translate(cx, cy); if (p.s > 0) g.rotate(Math.PI);
+    g.font = `900 ${Math.round(0.8 * KZ)}px "Arial Black", Arial, "Liberation Sans", Helvetica, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.scale(Math.min(1, (1.8 * KX) / g.measureText(p.id).width), 1); g.fillText(p.id, 0, 0); g.restore();
+  }
+  // desgaste de la pintura: picado fino, parches y paso de neumáticos
+  const r = mulberry32(77);
+  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  for (let i = 0; i < 110000; i++) { const s = 1 + r() * 2.5; g.fillRect(r() * PISO_W, r() * PISO_H, s, s); }
+  g.globalAlpha = 0.55;
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) g.drawImage(mascaraDesgaste, (i * PISO_W) / 4, (j * PISO_H) / 4, PISO_W / 4, PISO_H / 4);
+  g.globalAlpha = 1;
+  dibujarHuellas(g, 4, '0,0,0');
+  g.globalCompositeOperation = 'source-over';
+}
+const [lienzoPiso, gPiso] = lienzo(PISO_W, PISO_H);
+const texPiso = texturaDe(lienzoPiso);
+function componerPiso(colorLinea) {
+  pintarDemarcacion(colorLinea);
+  gPiso.globalAlpha = 1; gPiso.drawImage(lienzoBasePiso, 0, 0);
+  gPiso.globalAlpha = 0.92; gPiso.drawImage(lienzoPintura, 0, 0); gPiso.globalAlpha = 1;
+  dibujarHuellas(gPiso, 0.45);   // la suciedad también pasa sobre la pintura
+  texPiso.needsUpdate = true;
+}
+const COLORES_LINEA = { amarillo: '#d9a923', blanco: '#e6e5df' };
+componerPiso(COLORES_LINEA.amarillo);
+function texRugosidadPiso(humedo) {
+  const [c, g] = lienzo(PISO_W / 2, PISO_H / 2);
+  g.scale(0.5, 0.5);
+  const base = humedo ? 92 : 210;
+  g.fillStyle = `rgb(${base},${base},${base})`; g.fillRect(0, 0, PISO_W, PISO_H);
+  g.globalAlpha = 0.45; g.drawImage(manchadoPiso, 0, 0, PISO_W, PISO_H); g.globalAlpha = 1;
+  const [cm, gm] = lienzo(PISO_W / 2, PISO_H / 2);      // la pintura es más lisa que el concreto
+  gm.drawImage(lienzoPintura, 0, 0, PISO_W / 2, PISO_H / 2);
+  gm.globalCompositeOperation = 'source-in'; const vp = humedo ? 55 : 150;
+  gm.fillStyle = `rgb(${vp},${vp},${vp})`; gm.fillRect(0, 0, PISO_W, PISO_H);
+  g.drawImage(cm, 0, 0, PISO_W, PISO_H);
+  for (const m of MANCHAS) dibujarMancha(g, m, humedo ? '18,18,18' : '60,60,60', 2.5);   // el aceite brilla
+  if (humedo) {   // charcos
+    const charcos = lienzoCampo(fbm(256, 4, 123, 3, 0.5), 256, (v) => [6, 6, 6, v < 0.43 ? Math.min(255, (0.43 - v) * 2600) : 0]);
+    g.drawImage(charcos, 0, 0, PISO_W, PISO_H);
+  }
+  return texturaDe(c, { srgb: false });
+}
+const texRugSeco = texRugosidadPiso(false), texRugMojado = texRugosidadPiso(true);
+
+// ---------------------------------------------------------------------------
+// Muros, columnas y techo
+// ---------------------------------------------------------------------------
+function pintarMuro() {      // 8 m × 3,2 m, se repite a lo largo
+  const W = 2048, H = 820, K = H / ALTO_TECHO, [c, g] = lienzo(W, H), r = mulberry32(31);
+  g.fillStyle = '#d2cfc7'; g.fillRect(0, 0, W, H);
+  g.drawImage(lienzoCampo(fbm(128, 4, 41, 2, 0.5), 128, (v) => v < 0.5 ? [60, 58, 52, (0.5 - v) * 2 * 40] : [255, 255, 250, (v - 0.5) * 2 * 25]), 0, 0, W, H);
+  for (let i = 0; i < 70; i++) {   // marcas de rodillo
+    const x = r() * W, w = 20 + r() * 60;
+    g.fillStyle = `rgba(${r() < 0.5 ? '255,255,255' : '90,85,75'},${0.02 + r() * 0.03})`;
+    g.fillRect(x, 0, w, H); if (x + w > W) g.fillRect(x - W, 0, w, H);
+  }
+  g.fillStyle = '#4d555d'; g.fillRect(0, H - 0.9 * K, W, 0.9 * K);          // zócalo pintado
+  g.fillStyle = '#d4a51c'; g.fillRect(0, H - 1.0 * K, W, 0.1 * K);          // franja amarilla
+  const gr = g.createLinearGradient(0, H, 0, H - 0.45 * K);
+  gr.addColorStop(0, 'rgba(18,16,14,0.55)'); gr.addColorStop(1, 'rgba(18,16,14,0)');
+  g.fillStyle = gr; g.fillRect(0, H - 0.45 * K, W, 0.45 * K);
+  for (let i = 0; i < 70; i++) {   // raspones a la altura de los parachoques
+    const x = r() * W, y = H - (0.3 + r() * 0.45) * K, w = 15 + r() * 130, h = 2 + r() * 6;
+    g.fillStyle = r() < 0.6 ? `rgba(15,15,15,${0.1 + r() * 0.25})` : `rgba(225,225,220,${0.08 + r() * 0.18})`;
+    g.fillRect(x, y, w, h);
+  }
+  for (let i = 0; i < 28; i++) {   // chorreados de humedad
+    const x = r() * W, w = 4 + r() * 26, l = (0.3 + r() * 1.5) * K, a = 0.05 + r() * 0.1;
+    const gg = g.createLinearGradient(0, 0, 0, l);
+    gg.addColorStop(0, `rgba(105,90,65,${a})`); gg.addColorStop(1, 'rgba(105,90,65,0)');
+    g.fillStyle = gg; g.fillRect(x, 0, w, l);
+  }
+  g.globalAlpha = 0.05; g.fillStyle = g.createPattern(lienzoGrano(128, 9), 'repeat'); g.fillRect(0, 0, W, H); g.globalAlpha = 1;
+  const t = texturaDe(c); t.wrapS = THREE.RepeatWrapping;
+  return t;
+}
+function pintarColumna() {   // una cara de 0,5 × 3,2 m
+  const W = 256, H = 1024, KxC = W / 0.5, Ky = H / ALTO_TECHO, [c, g] = lienzo(W, H), r = mulberry32(55);
+  g.fillStyle = '#d2cfc7'; g.fillRect(0, 0, W, H);
+  g.drawImage(lienzoCampo(fbm(64, 3, 12, 2, 0.5), 64, (v) => v < 0.5 ? [60, 58, 52, (0.5 - v) * 2 * 40] : [255, 255, 250, (v - 0.5) * 2 * 25]), 0, 0, W, H);
+  const y0 = H - 1.0 * Ky;
+  g.fillStyle = '#e0ae1f'; g.fillRect(0, y0, W, H - y0);
+  g.save(); g.beginPath(); g.rect(0, y0, W, H - y0); g.clip(); g.fillStyle = '#171717';
+  for (let k = -8; k < 8; k++) {
+    const u0 = k * 0.2, P = [[u0, 0], [u0 + 0.1, 0], [u0 + 1.1, 1.0], [u0 + 1.0, 1.0]];
+    g.beginPath(); P.forEach(([u, v], i) => { const px = u * KxC, py = H - v * Ky; if (i) g.lineTo(px, py); else g.moveTo(px, py); }); g.closePath(); g.fill();
+  }
+  g.restore();
+  for (let i = 0; i < 140; i++) {   // desgaste de la franja
+    const x = r() * W, y = y0 + r() * (H - y0), s = 1 + r() * 5;
+    g.fillStyle = r() < 0.5 ? `rgba(200,195,185,${0.2 + r() * 0.4})` : `rgba(20,20,20,${0.15 + r() * 0.3})`; g.fillRect(x, y, s, s * (0.5 + r()));
+  }
+  const gr = g.createLinearGradient(0, H, 0, H - 0.35 * Ky);
+  gr.addColorStop(0, 'rgba(18,16,14,0.5)'); gr.addColorStop(1, 'rgba(18,16,14,0)');
+  g.fillStyle = gr; g.fillRect(0, H - 0.35 * Ky, W, 0.35 * Ky);
+  return texturaDe(c);
+}
+function pintarTecho() {     // losa con marcas de encofrado; 4,8 × 4,8 m repetible
+  const T = 1024, K = T / 4.8, [c, g] = lienzo(T, T), r = mulberry32(88);
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) {
+    const v = 140 + Math.round((r() - 0.5) * 18);
+    g.fillStyle = `rgb(${v},${v - 2},${v - 6})`; g.fillRect(i * 1.2 * K, j * 2.4 * K, 1.2 * K, 2.4 * K);
+  }
+  g.drawImage(lienzoCampo(fbm(128, 4, 19, 2, 0.55), 128, (v) => v < 0.5 ? [40, 38, 34, (0.5 - v) * 2 * 70] : [230, 228, 222, (v - 0.5) * 2 * 35]), 0, 0, T, T);
+  g.strokeStyle = 'rgba(40,38,34,0.55)'; g.lineWidth = 2;
+  for (let i = 0; i <= 4; i++) { g.beginPath(); g.moveTo(i * 1.2 * K, 0); g.lineTo(i * 1.2 * K, T); g.stroke(); }
+  for (let j = 0; j <= 2; j++) { g.beginPath(); g.moveTo(0, j * 2.4 * K); g.lineTo(T, j * 2.4 * K); g.stroke(); }
+  g.fillStyle = 'rgba(30,28,25,0.6)';
+  for (let x = 0.3; x < 4.8; x += 0.6) for (let y = 0.6; y < 4.8; y += 1.2) { g.beginPath(); g.arc(x * K, y * K, 3, 0, Math.PI * 2); g.fill(); }
+  for (let i = 0; i < 6; i++) dibujarManchaLibre(g, r() * T, r() * T, 20 + r() * 60, '100,85,60', r);
+  g.globalAlpha = 0.06; g.fillStyle = g.createPattern(lienzoGrano(128, 13), 'repeat'); g.fillRect(0, 0, T, T); g.globalAlpha = 1;
+  const t = texturaDe(c, { repetir: true }); t.offset.set(0.125, 0.125);   // juntas del encofrado fuera del eje de las cámaras
+  return t;
+}
+function dibujarManchaLibre(g, cx, cy, R, rgb, r) {
+  for (let k = 0; k < 8; k++) {
+    const ox = (r() - 0.5) * R, oy = (r() - 0.5) * R, rr = R * (0.3 + r() * 0.7), a = 0.05 + r() * 0.08;
+    const gr = g.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, rr);
+    gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = gr; g.fillRect(cx + ox - rr, cy + oy - rr, 2 * rr, 2 * rr);
+  }
+}
+
+// ============================================================================
+// Estructura: piso, muros, techo, vigas, columnas, instalaciones
+// ============================================================================
+const ocluyentes = [];   // objetos fijos que pueden tapar placas (para la verdad de terreno)
+const matPiso = new THREE.MeshStandardMaterial({
+  map: texPiso, roughnessMap: texRugSeco, roughness: 1, metalness: 0,
+  normalMap: conRepeticion(normalConcreto, (2 * MURO_X) / 1.5, (2 * MURO_Z) / 1.5), normalScale: new THREE.Vector2(0.55, 0.55),
+});
+const piso = new THREE.Mesh(new THREE.PlaneGeometry(2 * MURO_X, 2 * MURO_Z), matPiso);
+piso.rotation.x = -Math.PI / 2; piso.receiveShadow = true; scene.add(piso);
+
+const matMuro = new THREE.MeshStandardMaterial({ map: pintarMuro(), roughness: 0.9, normalMap: conRepeticion(normalConcreto, 8 / 1.5, ALTO_TECHO / 1.5), normalScale: new THREE.Vector2(0.3, 0.3) });
+const matTecho = new THREE.MeshStandardMaterial({ map: pintarTecho(), roughness: 0.95, normalMap: conRepeticion(normalConcreto, 4.8 / 1.5, 4.8 / 1.5), normalScale: new THREE.Vector2(0.18, 0.18) });
+const matColumna = new THREE.MeshStandardMaterial({ map: pintarColumna(), roughness: 0.85, normalMap: conRepeticion(normalConcreto, 0.4, 2), normalScale: new THREE.Vector2(0.3, 0.3) });
+const matRampa = new THREE.MeshStandardMaterial({ color: 0x77756f, roughness: 0.9, normalMap: conRepeticion(normalConcreto, 5, 3) });
+
+// Muros y techo como planos de una sola cara: desde fuera se ve el interior (útil en la cámara libre)
+function plano(w, h, mat, { x = 0, y = 0, z = 0, rotX = 0, rotY = 0, tileU = 3, tileV = tileU } = {}) {
+  const geo = new THREE.PlaneGeometry(w, h);
+  if (rotX) geo.rotateX(rotX);
+  if (rotY) geo.rotateY(rotY);
+  geo.translate(x, y, z); uvMundo(geo, tileU, tileV);
+  const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; scene.add(m); return m;
+}
+function bloque(w, h, d, x, y, z, mat, tile = 3) {
+  const geo = new THREE.BoxGeometry(w, h, d); geo.translate(x, y, z); uvMundo(geo, tile);
+  const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; scene.add(m); return m;
+}
+const MURO = { tileU: 8, tileV: ALTO_TECHO };
+plano(2 * MURO_X, 2 * MURO_Z, matTecho, { y: ALTO_TECHO, rotX: Math.PI / 2, tileU: 4.8 });
+plano(2 * MURO_X, ALTO_TECHO, matMuro, { y: ALTO_TECHO / 2, z: -MURO_Z, ...MURO });
+plano(2 * MURO_X, ALTO_TECHO, matMuro, { y: ALTO_TECHO / 2, z: MURO_Z, rotY: Math.PI, ...MURO });
+plano(2 * MURO_Z, ALTO_TECHO, matMuro, { x: MURO_X, y: ALTO_TECHO / 2, rotY: -Math.PI / 2, ...MURO });
+const VANO = 2.6, ALTO_VANO = 2.4;   // acceso vehicular (rampa) en el muro de x negativo
+for (const s of [-1, 1]) plano(MURO_Z - VANO, ALTO_TECHO, matMuro, { x: -MURO_X, y: ALTO_TECHO / 2, z: s * (VANO + (MURO_Z - VANO) / 2), rotY: Math.PI / 2, ...MURO });
+plano(2 * VANO, ALTO_TECHO - ALTO_VANO, matMuro, { x: -MURO_X, y: ALTO_VANO + (ALTO_TECHO - ALTO_VANO) / 2, rotY: Math.PI / 2, ...MURO });
+{ // rampa de acceso (solo visible desde la cámara libre)
+  const largo = 8, sube = 2.2, ang = Math.atan2(sube, largo), l = Math.hypot(largo, sube);
+  const grp = new THREE.Group(); grp.position.set(-MURO_X - largo / 2, sube / 2, 0); grp.rotation.z = -ang;
+  const r2 = new THREE.Mesh(new THREE.PlaneGeometry(l, 2 * VANO), matRampa); r2.rotation.x = -Math.PI / 2; r2.receiveShadow = true; grp.add(r2);
+  scene.add(grp);
+  for (const s of [-1, 1]) plano(largo, ALTO_VANO + sube, matMuro, { x: -MURO_X - largo / 2, y: (ALTO_VANO + sube) / 2, z: -s * VANO, rotY: s > 0 ? 0 : Math.PI, ...MURO });
+}
+// vigas sobre las líneas de columnas (fuera del eje de las cámaras)
+for (const x of [-5, 5]) bloque(0.4, 0.45, 2 * MURO_Z, x, ALTO_TECHO - 0.225, 0, matTecho, 4.8);
+// columnas contra los muros de fondo, entre pares de plazas
+const geoColumna = new RoundedBoxGeometry(0.5, ALTO_TECHO, 0.5, 3, 0.03);
+for (const x of [-5, 0, 5]) for (const s of [-1, 1]) {
+  const col = new THREE.Mesh(geoColumna, matColumna);
+  col.position.set(x, ALTO_TECHO / 2, s * (MURO_Z - 0.25)); col.castShadow = true; col.receiveShadow = true;
+  scene.add(col); ocluyentes.push(col);
+}
+// instalaciones: red contra incendios con rociadores, conductos eléctricos y ducto de ventilación
+const matTuboRojo = new THREE.MeshStandardMaterial({ color: 0xa31c1c, roughness: 0.45, metalness: 0.1 });
+const matConduit = new THREE.MeshStandardMaterial({ color: 0xa2a7ac, roughness: 0.35, metalness: 0.8 });
+const matGalvanizado = new THREE.MeshStandardMaterial({ color: 0xb2b7bc, roughness: 0.35, metalness: 0.9 });
+const matBronce = new THREE.MeshStandardMaterial({ color: 0xb08a3e, roughness: 0.35, metalness: 1 });
+function tubo(r, largo, eje, x, y, z, mat) {
+  const geo = new THREE.CylinderGeometry(r, r, largo, 14);
+  if (eje === 'x') geo.rotateZ(Math.PI / 2); else if (eje === 'z') geo.rotateX(Math.PI / 2);
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); scene.add(m); return m;
+}
+ocluyentes.push(tubo(0.05, 2 * MURO_X, 'x', 0, ALTO_TECHO - 0.1, -(MURO_Z - 0.9), matTuboRojo));
+{
+  const geoRociador = new THREE.CylinderGeometry(0.024, 0.01, 0.06, 10);
+  // ramales sobre la mitad trasera de cada fila: quedan detrás de la cámara de su lado y lejos de la otra
+  for (const z of [-6.8, 6.8]) {
+    tubo(0.024, 2 * MURO_X, 'x', 0, ALTO_TECHO - 0.07, z, matTuboRojo);
+    for (let x = -8.75; x <= 8.75; x += 2.5) { const b = new THREE.Mesh(geoRociador, matBronce); b.position.set(x, ALTO_TECHO - 0.12, z); scene.add(b); }
+  }
+  const geoCaja = new RoundedBoxGeometry(0.11, 0.06, 0.11, 2, 0.01);
+  for (const z of [-5.6, 5.6]) {
+    tubo(0.012, 2 * MURO_X, 'x', 0, ALTO_TECHO - 0.03, z, matConduit);
+    for (const x of [-8, -3, 2, 7]) { const b = new THREE.Mesh(geoCaja, matConduit); b.position.set(x, ALTO_TECHO - 0.05, z); scene.add(b); }
+  }
+  const ducto = new THREE.Mesh(new RoundedBoxGeometry(2 * MURO_X, 0.2, 0.5, 2, 0.015), matGalvanizado);
+  ducto.position.set(0, ALTO_TECHO - 0.1, MURO_Z - 0.55); scene.add(ducto);
+  const bridas = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.23, 0.53), matGalvanizado, 18);
+  const m4 = new THREE.Matrix4();
+  for (let i = 0; i < 18; i++) { m4.makeTranslation(-MURO_X + 0.6 + i * 1.2, ALTO_TECHO - 0.1, MURO_Z - 0.55); bridas.setMatrixAt(i, m4); }
+  scene.add(bridas);
+}
+{ // gabinete contra incendios y señal de salida (visibles desde la cámara libre)
+  const gab = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.8, 0.55, 2, 0.02), new THREE.MeshStandardMaterial({ color: 0xb01818, roughness: 0.4 }));
+  gab.position.set(MURO_X - 0.1, 1.35, -1.4); scene.add(gab);
+  const texSalida = texTexto('SALIDA', { w: 512, h: 200, fondo: '#0f7a3a', color: '#ffffff', escala: 0.62 });
+  const salida = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.2), new THREE.MeshStandardMaterial({ map: texSalida, emissive: 0xffffff, emissiveMap: texSalida, emissiveIntensity: 1.2, roughness: 0.4 }));
+  salida.rotation.y = Math.PI / 2; salida.position.set(-MURO_X + 0.02, 2.6, -VANO - 0.5); scene.add(salida);
+}
+
+// Letreros de plaza en el muro de fondo (visibles por encima de los techos de los autos)
+{
+  const geoLetrero = new RoundedBoxGeometry(0.72, 0.36, 0.025, 2, 0.01);
+  for (const p of PLAZAS) {
+    const tex = texTexto(p.id, { w: 256, h: 128, fondo: '#1f4f9e', borde: '#ffffff', escala: 0.66 });
+    const letrero = new THREE.Mesh(geoLetrero, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.45 }));
+    letrero.position.set(p.x, 2.2, p.s * (MURO_Z - 0.015)); letrero.rotation.y = p.s < 0 ? 0 : Math.PI; scene.add(letrero);
+  }
+}
+
+// Ventanas de ventilación altas (fuente del contraluz)
+const matVentana = new THREE.MeshBasicMaterial({ color: 0x20262e });
+const destellosVentana = [];
+const TEX_DESTELLO = texDestello();
+{
+  const barras = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.5, 0.03), new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.6, metalness: 0.4 }), 8 * 15);
+  const marcos = new THREE.InstancedMesh(new THREE.BoxGeometry(4.1, 0.05, 0.06), new THREE.MeshStandardMaterial({ color: 0x3a3d41, roughness: 0.5, metalness: 0.5 }), 16);
+  const m4 = new THREE.Matrix4(); let n = 0, nm = 0;
+  for (const s of [-1, 1]) for (const xc of [-7.5, -2.5, 2.5, 7.5]) {
+    const v = new THREE.Mesh(new THREE.PlaneGeometry(4, 0.5), matVentana);
+    v.position.set(xc, 2.72, s * (MURO_Z - 0.008)); v.rotation.y = s < 0 ? 0 : Math.PI; scene.add(v);
+    for (let b = 1; b <= 15; b++) { m4.makeTranslation(xc - 2 + b * 0.25, 2.72, s * (MURO_Z - 0.03)); barras.setMatrixAt(n++, m4); }
+    for (const y of [2.47, 2.97]) { m4.makeTranslation(xc, y, s * (MURO_Z - 0.03)); marcos.setMatrixAt(nm++, m4); }
+    // velo de deslumbramiento (solo en calidad baja; en media/alta lo produce el bloom)
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX_DESTELLO, color: new THREE.Color(3.0, 2.85, 2.6), blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+    sp.position.set(xc, 2.7, s * (MURO_Z - 0.4)); sp.scale.set(8, 4.6, 1); sp.renderOrder = 10; sp.visible = false; scene.add(sp);
+    destellosVentana.push(sp);
+  }
+  scene.add(barras, marcos);
+}
+
+// ============================================================================
+// Luminarias herméticas e iluminación
+// ============================================================================
+const geoCuerpoLum = new RoundedBoxGeometry(1.3, 0.08, 0.15, 2, 0.02);
+const geoDifusor = new RoundedBoxGeometry(1.24, 0.04, 0.12, 2, 0.015);
+const geoColgante = new THREE.CylinderGeometry(0.005, 0.005, 0.12, 6);
+const matCuerpoLum = new THREE.MeshStandardMaterial({ color: 0xc6c9cd, roughness: 0.6 });
+const matBarra = new THREE.MeshStandardMaterial({ color: 0x9a9fa5, roughness: 0.5, metalness: 0.5 });
+const MAT_DIFUSOR = {
+  on: new THREE.MeshStandardMaterial({ color: 0xf4f6f8, emissive: 0xf5f8ff, emissiveIntensity: 3.2, roughness: 0.4 }),
+  tenue: new THREE.MeshStandardMaterial({ color: 0xf4f6f8, emissive: 0xf5f8ff, emissiveIntensity: 1.1, roughness: 0.4 }),
+  off: new THREE.MeshStandardMaterial({ color: 0xd4d7da, roughness: 0.4 }),
+};
+const LUMINARIAS = [];
+{
+  const xs = [-7.5, -2.5, 2.5, 7.5];
+  const filas = [{ z: 0, luz: [1, 1, 1, 1], base: 30, fila: 'pasillo' }, { z: -6, luz: [0, 1, 1, 0], base: 24, fila: 'A' }, { z: 6, luz: [0, 1, 1, 0], base: 24, fila: 'B' }];
+  for (const f of filas) xs.forEach((x, j) => {
+    const g = new THREE.Group(); g.position.set(x, ALTO_TECHO - 0.12, f.z);
+    g.add(new THREE.Mesh(geoCuerpoLum, matCuerpoLum));
+    const difusor = new THREE.Mesh(geoDifusor, MAT_DIFUSOR.on); difusor.position.y = -0.04; g.add(difusor);
+    for (const dx of [-0.5, 0.5]) { const c = new THREE.Mesh(geoColgante, matBarra); c.position.set(dx, 0.1, 0); g.add(c); }
+    scene.add(g); ocluyentes.push(g);
+    let luz = null;
+    if (f.luz[j]) {
+      luz = new THREE.SpotLight(0xf3f6ff, f.base, 0, 1.15, 1.0, 2);
+      luz.position.set(x, ALTO_TECHO - 0.2, f.z); luz.target.position.set(x, 0, f.z);
+      Object.assign(luz.shadow.camera, { near: 0.2, far: 12 }); luz.shadow.bias = -0.0004; luz.shadow.normalBias = 0.02;
+      scene.add(luz, luz.target);
+    }
+    LUMINARIAS.push({ grupo: g, difusor, luz, base: f.base, fila: f.fila });
+  });
+}
+const solesVentana = [-1, 1].map((s) => {
+  const sp = new THREE.SpotLight(0xfff1dc, 260, 0, 1.0, 0.7, 2);
+  sp.position.set(0, 2.85, s * (MURO_Z - 0.6)); sp.target.position.set(0, 0, -s * 3);
+  sp.castShadow = true; sp.shadow.mapSize.set(1024, 1024); sp.shadow.camera.near = 0.3; sp.shadow.camera.far = 30; sp.shadow.bias = -0.0006;
+  sp.visible = false; scene.add(sp, sp.target); return sp;
+});
+const ILUM = {
+  normal: {
+    desc: 'Todas las luminarias encendidas.',
+    exposicion: 1.0, factores: Array(12).fill(1), ventana: [0.10, 0.12, 0.15], sol: false, humedo: false, placaEmis: 0.08,
+  },
+  baja: {
+    desc: 'La mayoría de las luminarias apagadas: escena oscura, poco contraste y placas en penumbra.',
+    exposicion: 1.1, factores: [0, 0.45, 0, 0.35, 0, 0, 0.35, 0, 0, 0.35, 0, 0], ventana: [0.02, 0.025, 0.03], sol: false, humedo: false, placaEmis: 0.02,
+  },
+  contraluz: {
+    desc: 'Luz de día por las ventanas de ventilación detrás de los autos (contraluz y deslumbramiento), exposición reducida y piso mojado con charcos y reflejos.',
+    exposicion: 0.55, factores: Array(12).fill(1), ventana: [7, 6.8, 6.2], sol: true, humedo: true, placaEmis: 0.04,
+  },
+};
+let ilumActual = 'normal';
+
+// ---------------------------------------------------------------------------
+// Iluminación ambiental y reflejos capturados del propio parqueadero (sin vehículos)
+// ---------------------------------------------------------------------------
+const pmrem = new THREE.PMREMGenerator(renderer);
+const cuboRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+const camCubo = new THREE.CubeCamera(0.05, 60, cuboRT);
+camCubo.position.set(0, 1.4, 0);
+let entornoRT = null;
+function capturarEntorno() {
+  const ocultos = [...vehiculos.map((v) => v.obj), ...destellosVentana].filter((o) => o.visible);
+  ocultos.forEach((o) => { o.visible = false; });
+  scene.environment = null;
+  for (let i = 0; i < 2; i++) {   // dos pasadas: la segunda incluye un rebote de luz indirecta
+    camCubo.update(renderer, scene);
+    const nuevo = pmrem.fromCubemap(cuboRT.texture);
+    if (entornoRT) entornoRT.dispose();
+    entornoRT = nuevo; scene.environment = entornoRT.texture;
+  }
+  ocultos.forEach((o) => { o.visible = true; });
+  pedirRender();
+}
+
+// ---------------------------------------------------------------------------
+// Calidad gráfica y posprocesado (oclusión ambiental GTAO, bloom, MSAA)
+// ---------------------------------------------------------------------------
+const CALIDADES = {
+  alta: { post: true, gtao: true, bloom: true, msaa: 4, sombras: 'todas', mapa: 1024 },
+  media: { post: true, gtao: false, bloom: true, msaa: 4, sombras: 'filas', mapa: 1024 },
+  baja: { post: false, gtao: false, bloom: false, msaa: 0, sombras: 'filas', mapa: 512 },
+};
+let calidad = 'alta';
+const pipelines = new Map();
+function crearPipeline(cam, w, h, pr, msaa) {
+  const q = CALIDADES[calidad];
+  // a 4K se omite el MSAA: la resolución ya suaviza los bordes y se ahorra mucha memoria de GPU
+  const rt = new THREE.WebGLRenderTarget(Math.max(1, Math.round(w * pr)), Math.max(1, Math.round(h * pr)), { type: THREE.HalfFloatType, samples: msaa ?? q.msaa });
+  const composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(pr); composer.setSize(w, h);
+  composer.addPass(new RenderPass(scene, cam));
+  if (q.gtao) {
+    const ao = new GTAOPass(scene, cam, w, h);
+    ao.updateGtaoMaterial({ radius: 0.7, distanceExponent: 1.5, thickness: 2, scale: 1.2, samples: 16 });
+    ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+    ao.blendIntensity = 1;
+    composer.addPass(ao);
+  }
+  if (q.bloom) composer.addPass(new UnrealBloomPass(new THREE.Vector2(w, h), 0.35, 0.55, 1.1));
+  composer.addPass(new OutputPass());
+  return { composer, w, h, pr };
+}
+function liberarPipeline(p) { for (const ps of p.composer.passes) ps.dispose?.(); p.composer.dispose(); }
+function obtenerPipeline(cam, w, h) {
+  const pr = renderer.getPixelRatio();
+  let p = pipelines.get(cam);
+  if (p && (p.w !== w || p.h !== h || p.pr !== pr)) { p.composer.setPixelRatio(pr); p.composer.setSize(w, h); Object.assign(p, { w, h, pr }); }
+  if (!p) { p = crearPipeline(cam, w, h, pr); pipelines.set(cam, p); }
+  return p;
+}
+function aplicarCalidad(clave) {
+  if (!CALIDADES[clave]) return;
+  calidad = clave;
+  const q = CALIDADES[clave];
+  for (const p of pipelines.values()) liberarPipeline(p);
+  pipelines.clear();
+  for (const l of LUMINARIAS) {
+    if (!l.luz) continue;
+    l.luz.castShadow = q.sombras === 'todas' || l.fila !== 'pasillo';
+    if (l.luz.shadow.mapSize.x !== q.mapa) { l.luz.shadow.mapSize.set(q.mapa, q.mapa); l.luz.shadow.map?.dispose(); l.luz.shadow.map = null; }
+  }
+  for (const d of destellosVentana) d.visible = ILUM[ilumActual].sol && !q.bloom;
+  scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
+  $('#selCalidad').value = clave;
+  marcarSombras();
+}
+
+// ============================================================================
+// Cámaras CCTV y cámara libre
+// ============================================================================
+const CAM_INFO = [
+  { id: 'CAM_01', nombre: 'CAM 01', etiqueta: 'FILA A · P1–P6', plazas: PLAZAS.slice(0, 6).map((p) => p.id), fila: -1 },
+  { id: 'CAM_02', nombre: 'CAM 02', etiqueta: 'FILA B · P7–P12', plazas: PLAZAS.slice(6).map((p) => p.id), fila: 1 },
+];
+// Paneo 0° = mirando hacia la fila A (−Z). Inclinación negativa = hacia abajo. Orden de Euler YXZ.
+const CAM_DEFECTO = [
+  { x: 0, y: 2.9, z: 5.0, pan: 0, tilt: -15, roll: 0, fov: 56 },
+  { x: 0, y: 2.9, z: -5.0, pan: 180, tilt: -15, roll: 0, fov: 56 },
+];
+let ajustesCam = CAM_DEFECTO.map((a) => ({ ...a }));
+const cctv = CAM_DEFECTO.map(() => new THREE.PerspectiveCamera(56, RELACION, 0.1, 80));
+// Capas: 0 escena, 1 ayudas de depuración, 2 modelo de la cámara 1, 3 modelo de la cámara 2
+cctv[0].layers.set(0); cctv[0].layers.enable(3);
+cctv[1].layers.set(0); cctv[1].layers.enable(2);
+
+const matCamCuerpo = new THREE.MeshStandardMaterial({ color: 0xe8eaec, roughness: 0.4, metalness: 0.05 });
+const matLente = new THREE.MeshPhysicalMaterial({ color: 0x050607, roughness: 0.05, metalness: 0.2, clearcoat: 1 });
+const modelosCam = [], barrasCam = [], proxiesCam = [], ayudasCam = [];
+cctv.forEach((cam, i) => {
+  const capa = 2 + i, g = new THREE.Group();
+  const cuerpo = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.24, 24), matCamCuerpo); cuerpo.rotation.x = Math.PI / 2; cuerpo.position.z = 0.13;
+  const visera = new THREE.Mesh(new RoundedBoxGeometry(0.13, 0.014, 0.3, 2, 0.006), matCamCuerpo); visera.position.set(0, 0.056, 0.11);
+  const aro = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.047, 0.02, 24), matLente); aro.rotation.x = Math.PI / 2; aro.position.z = 0.005;
+  const soporte = new THREE.Mesh(new RoundedBoxGeometry(0.035, 0.07, 0.035, 2, 0.008), matCamCuerpo); soporte.position.set(0, 0.08, 0.16);
+  g.add(cuerpo, visera, aro, soporte);
+  g.traverse((o) => o.layers.set(capa));
+  scene.add(g); modelosCam.push(g);
+  const barra = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 1, 10), matBarra); barra.layers.set(capa); scene.add(barra); barrasCam.push(barra);
+  const proxy = new THREE.PerspectiveCamera(56, RELACION, 0.1, 12); proxiesCam.push(proxy);
+  const ayuda = new THREE.CameraHelper(proxy); ayuda.layers.set(1); scene.add(ayuda); ayudasCam.push(ayuda);
+});
+
+const camLibre = new THREE.PerspectiveCamera(55, 1, 0.05, 200);
+camLibre.position.set(13, 12, 17); camLibre.layers.enableAll();
+const controles = new OrbitControls(camLibre, renderer.domElement);
+controles.target.set(0, 0.8, 0); controles.enableDamping = true; controles.dampingFactor = 0.08;
+controles.maxPolarAngle = Math.PI * 0.495; controles.enabled = false; controles.update();
+controles.addEventListener('change', pedirRender);
+
+function aplicarAjustesCamara(i) {
+  const a = ajustesCam[i], cam = cctv[i];
+  cam.position.set(a.x, a.y, a.z);
+  cam.rotation.set(a.tilt * D2R, a.pan * D2R, a.roll * D2R, 'YXZ');
+  cam.fov = a.fov; cam.aspect = RELACION; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+  const m = modelosCam[i];
+  m.position.copy(cam.position); m.quaternion.copy(cam.quaternion); m.updateMatrixWorld(true);
+  const tope = new THREE.Vector3(0, 0.11, 0.16).applyMatrix4(m.matrixWorld);
+  const largo = Math.max(0.01, ALTO_TECHO - tope.y);
+  barrasCam[i].scale.y = largo; barrasCam[i].position.set(tope.x, tope.y + largo / 2, tope.z);
+  const px = proxiesCam[i];
+  px.position.copy(cam.position); px.quaternion.copy(cam.quaternion); px.fov = a.fov;
+  px.updateProjectionMatrix(); px.updateMatrixWorld(); ayudasCam[i].update();
+  pedirRender();
+}
+cctv.forEach((_, i) => aplicarAjustesCamara(i));
+
+// ============================================================================
+// Vehículos: carrocerías suaves generadas por secciones (loft), pintura con barniz
+// Sistema local: +Z = frente del vehículo, +Y arriba, X lateral. u = coordenada longitudinal.
+// ============================================================================
+const TIPOS = {
+  sedan: {
+    nombre: 'Sedán', L: 4.62, r: 0.315, anchoLlanta: 0.215, ejeD: 1.37, ejeT: -1.33, radios: 5,
+    zb: [[-2.31, 0.40], [-2.16, 0.27], [-1.85, 0.21], [1.85, 0.21], [2.16, 0.27], [2.31, 0.38]],
+    zt: [[-2.31, 0.90], [-2.20, 0.99], [-1.98, 1.02], [-1.62, 1.02], [-0.5, 0.99], [1.02, 0.95], [1.70, 0.88], [2.16, 0.78], [2.31, 0.70]],
+    hw: [[-2.31, 0.79], [-2.08, 0.87], [-1.3, 0.89], [1.2, 0.89], [2.0, 0.86], [2.31, 0.76]],
+    cab: { uIni: -1.66, uFin: 1.04, anchoTecho: 0.61,
+      techo: [[-1.66, 1.00], [-1.42, 1.16], [-1.14, 1.34], [-0.86, 1.42], [0.22, 1.44], [0.5, 1.37], [0.78, 1.18], [1.04, 0.96]] },
+    vidrios: { laterales: [[-1.10, -0.45], [-0.37, 0.86]], parabrisas: [0.26, 1.02], luneta: [-1.62, -0.9] },
+    faros: { x: 0.5, y: 0.62, w: 0.36, h: 0.1 }, parrilla: { y: 0.55, w: 0.6, h: 0.09 }, toma: { y: 0.36, w: 0.92, h: 0.12 },
+    stops: { x: 0.57, y: 0.85, w: 0.4, h: 0.12 }, placaD: 0.46, placaT: 0.64,
+  },
+  suv: {
+    nombre: 'SUV', L: 4.62, r: 0.36, anchoLlanta: 0.235, ejeD: 1.4, ejeT: -1.3, radios: 5,
+    zb: [[-2.31, 0.46], [-2.14, 0.34], [-1.8, 0.29], [1.8, 0.29], [2.14, 0.35], [2.31, 0.46]],
+    zt: [[-2.31, 1.0], [-2.22, 1.06], [-1.5, 1.07], [1.15, 1.05], [1.8, 1.0], [2.2, 0.92], [2.31, 0.86]],
+    hw: [[-2.31, 0.84], [-2.1, 0.91], [-1.3, 0.93], [1.3, 0.93], [2.05, 0.9], [2.31, 0.8]],
+    revestimiento: 0.45,
+    cab: { uIni: -2.24, uFin: 1.02, anchoTecho: 0.67,
+      techo: [[-2.24, 1.04], [-2.19, 1.40], [-2.1, 1.63], [-1.9, 1.69], [0.18, 1.7], [0.46, 1.6], [0.76, 1.36], [1.02, 1.06]] },
+    vidrios: { laterales: [[-2.0, -1.42], [-1.32, -0.5], [-0.42, 0.8]], parabrisas: [0.22, 0.99], luneta: [-2.23, -2.02] },
+    faros: { x: 0.56, y: 0.82, w: 0.38, h: 0.11 }, parrilla: { y: 0.71, w: 0.7, h: 0.16 }, toma: { y: 0.47, w: 1.0, h: 0.14 },
+    stops: { x: 0.64, y: 0.94, w: 0.3, h: 0.13 }, placaD: 0.55, placaT: 0.8,
+  },
+  camioneta: {
+    nombre: 'Camioneta', L: 5.3, r: 0.38, anchoLlanta: 0.245, ejeD: 1.72, ejeT: -1.36, radios: 6,
+    zb: [[-2.65, 0.5], [-2.4, 0.4], [-2.0, 0.36], [2.0, 0.36], [2.4, 0.42], [2.65, 0.52]],
+    zt: [[-2.65, 0.88], [-0.88, 0.88], [-0.84, 1.13], [1.25, 1.12], [1.95, 1.08], [2.45, 1.0], [2.65, 0.94]],
+    hw: [[-2.65, 0.9], [-2.45, 0.93], [2.2, 0.93], [2.5, 0.9], [2.65, 0.84]],
+    revestimiento: 0.47,
+    caja: { u0: -0.86, u1: -2.65, piso: 0.88, borde: 1.14 },
+    cab: { uIni: -0.84, uFin: 1.3, anchoTecho: 0.67,
+      techo: [[-0.84, 1.13], [-0.81, 1.58], [-0.74, 1.77], [-0.54, 1.8], [0.44, 1.8], [0.7, 1.68], [1.02, 1.4], [1.3, 1.13]] },
+    vidrios: { laterales: [[-0.7, -0.07], [0.01, 0.95]], parabrisas: [0.47, 1.27], luneta: [-0.83, -0.76] },
+    faros: { x: 0.58, y: 0.92, w: 0.4, h: 0.12 }, parrilla: { y: 0.82, w: 0.96, h: 0.26 }, toma: { y: 0.56, w: 1.1, h: 0.12 },
+    stops: { x: 0.87, y: 0.98, w: 0.09, h: 0.3 }, placaD: 0.62, placaT: 0.57, salienteT: 0.075,
+  },
+};
+// [nombre, color, metalizado]
+const PALETA = [['Blanco', '#f1f1ef', false], ['Plata', '#b9bdc2', true], ['Gris', '#5b6066', true], ['Negro', '#16171a', false], ['Rojo', '#a8141c', false],
+  ['Azul', '#1d4a96', true], ['Verde', '#2c6a3c', true], ['Beige', '#c9b791', true], ['Amarillo', '#e2b019', false], ['Naranja', '#d4621a', false]];
+
+const G_PINTURA = 0, G_VIDRIO = 1, G_PLASTICO = 2;
+const matPinturaBase = new THREE.MeshPhysicalMaterial({ color: 0x888888 });
+const matPlacaBase = new THREE.MeshStandardMaterial({ color: 0xffffff });
+const matVidrio = new THREE.MeshPhysicalMaterial({ color: 0x0a0e12, roughness: 0.03, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.02 });
+const matPlastico = new THREE.MeshStandardMaterial({ color: 0x1a1b1d, roughness: 0.72 });
+const matPasarrueda = new THREE.MeshStandardMaterial({ color: 0x0b0b0b, roughness: 0.95, side: THREE.DoubleSide });
+const matCromo = new THREE.MeshStandardMaterial({ color: 0xdfe3e8, metalness: 1, roughness: 0.15 });
+const matGoma = new THREE.MeshStandardMaterial({ color: 0x171717, roughness: 0.9 });
+const matRin = new THREE.MeshStandardMaterial({ color: 0xc3c8ce, metalness: 1, roughness: 0.26 });
+const matDisco = new THREE.MeshStandardMaterial({ color: 0x5a5d61, metalness: 0.8, roughness: 0.45 });
+const matFaro = new THREE.MeshPhysicalMaterial({ color: 0xd3dbe2, metalness: 0.85, roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.03 });
+const matStop = new THREE.MeshPhysicalMaterial({ color: 0x7c0a0a, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.04, emissive: 0x220000 });
+const matMarcoPlaca = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
+const matCaja = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.85 });
+const matParrilla = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.4, map: (() => {
+  const [c, g] = lienzo(256, 64); g.fillStyle = '#0d0e0f'; g.fillRect(0, 0, 256, 64);
+  g.fillStyle = '#34373b'; for (let y = 3; y < 64; y += 9) g.fillRect(0, y, 256, 3);
+  return texturaDe(c);
+})() });
+const geoPlaca = new THREE.PlaneGeometry(0.40, 0.15);                 // 40 × 15 cm
+const geoRespaldoPlaca = new RoundedBoxGeometry(0.43, 0.17, 0.02, 1, 0.006);
+const geoTornillo = new THREE.CylinderGeometry(0.007, 0.007, 0.003, 10);
+
+function materialPintura(hex) {
+  const m = new THREE.MeshPhysicalMaterial({ color: hex, clearcoat: 1, clearcoatRoughness: 0.05 });
+  ajustarPintura(m, hex);
+  return m;
+}
+function ajustarPintura(m, hex) {
+  const p = PALETA.find(([, h]) => h === hex), metal = p ? p[2] : true;
+  m.color.set(hex); m.metalness = metal ? 0.6 : 0.05; m.roughness = metal ? 0.35 : 0.42;
+}
+
+// Interpolación cúbica monótona (Fritsch–Carlson) de puntos [u, valor]
+function curva(puntos) {
+  const n = puntos.length, xs = puntos.map((p) => p[0]), ys = puntos.map((p) => p[1]), d = [], m = new Array(n);
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+  m[0] = d[0]; m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+    if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+  }
+  return (x) => {
+    if (x <= xs[0]) return ys[0];
+    if (x >= xs[n - 1]) return ys[n - 1];
+    let i = 0; while (x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], t = (x - xs[i]) / h, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * m[i + 1];
+  };
+}
+// Sección transversal redondeada, en sentido antihorario visto desde +Z, empezando abajo al centro.
+// Cada punto lleva una etiqueta (base, lado, esquina, techo) para asignar pintura/vidrio/plástico.
+function seccionRedondeada(z0, z1, wb, wt, rb, rt, corona, abombado, filas) {
+  const h = Math.max(0.01, z1 - z0);
+  rb = Math.min(rb, h * 0.3, wb * 0.5); rt = Math.min(rt, h * 0.4, wt * 0.5);
+  const der = [{ x: 0, y: z0, tag: 'base', f: 0 }];
+  for (let k = 1; k <= 2; k++) { const a = -Math.PI / 2 + (k / 3) * (Math.PI / 2); der.push({ x: wb - rb + rb * Math.cos(a), y: z0 + rb + rb * Math.sin(a), tag: 'base', f: 0 }); }
+  const ya = z0 + rb, yb = z1 - rt;
+  for (const f of filas) der.push({ x: wb + (wt - wb) * f + abombado * Math.sin(Math.PI * f), y: ya + (yb - ya) * f, tag: 'lado', f });
+  for (let k = 1; k <= 3; k++) { const a = (k / 4) * (Math.PI / 2); der.push({ x: wt - rt + rt * Math.cos(a), y: yb + rt * Math.sin(a), tag: 'esquina', f: 1 }); }
+  for (const f of [1, 0.7, 0.4]) der.push({ x: (wt - rt) * f, y: z1 + corona * (1 - f * f), tag: 'techo', f });
+  der.push({ x: 0, y: z1 + corona, tag: 'techo', f: 0 });
+  return der.concat(der.slice(1, -1).reverse().map((p) => ({ ...p, x: -p.x })));
+}
+function estacionesPara(u0, u1, paso, extras = [], redondeo = false) {
+  const s = new Set(), n = Math.ceil((u1 - u0) / paso);
+  for (let i = 0; i <= n; i++) s.add(+(u0 + ((u1 - u0) * i) / n).toFixed(4));
+  if (redondeo) for (const e of [0.004, 0.012, 0.025, 0.04, 0.055]) { s.add(+(u0 + e).toFixed(4)); s.add(+(u1 - e).toFixed(4)); }
+  for (const x of extras) if (x > u0 && x < u1) s.add(+x.toFixed(4));
+  return [...s].sort((a, b) => a - b);
+}
+// Superficie por secciones: devuelve una geometría indexada con grupos de material y tapas en los extremos
+function loft(estaciones, seccionEn, clasificar, deformar = null) {
+  const secs = estaciones.map(seccionEn), N = secs[0].length, S = estaciones.length, pos = [], grupos = [[], [], []];
+  for (let i = 0; i < S; i++) for (const p of secs[i]) pos.push(p.x, p.y, estaciones[i]);
+  for (let i = 0; i < S - 1; i++) {
+    const um = (estaciones[i] + estaciones[i + 1]) / 2;
+    for (let j = 0; j < N; j++) {
+      const j2 = (j + 1) % N, a = i * N + j, b = i * N + j2, c = (i + 1) * N + j2, d = (i + 1) * N + j;
+      grupos[clasificar(um, secs[i][j], secs[i][j2], false)].push(a, b, d, b, c, d);
+    }
+  }
+  if (deformar) for (let k = 0; k < pos.length; k += 3) deformar(pos, k);
+  for (const [i, signo] of [[0, -1], [S - 1, 1]]) {
+    const base = pos.length / 3, sec = secs[i]; let cy = 0;
+    for (const p of sec) cy += p.y / N;
+    pos.push(0, cy, estaciones[i]);
+    for (const p of sec) pos.push(p.x, p.y, estaciones[i]);
+    const g = grupos[clasificar(estaciones[i], sec[0], sec[0], true)];
+    for (let j = 0; j < N; j++) { const j2 = (j + 1) % N; if (signo > 0) g.push(base, base + 1 + j, base + 1 + j2); else g.push(base, base + 1 + j2, base + 1 + j); }
+  }
+  const geo = new THREE.BufferGeometry(), indices = [];
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  grupos.forEach((gr, k) => { if (gr.length) { geo.addGroup(indices.length, gr.length, k); for (const v of gr) indices.push(v); } });
+  geo.setIndex(indices); geo.computeVertexNormals();
+  return geo;
+}
+const enRango = (u, r) => u >= r[0] && u <= r[1];
+const FILAS_INF = [0, 0.25, 0.5, 0.75, 1];
+const FILAS_CAB = [0, 0.08, 0.22, 0.4, 0.58, 0.76, 0.9, 1];
+
+function construirRueda(t) {
+  const g = new THREE.Group(), R = t.r, w = t.anchoLlanta, rR = R * 0.64, sh = 0.04;
+  const perfil = [[rR - 0.01, -w / 2 + 0.012], [R * 0.86, -w / 2 - 0.006]];
+  for (let k = 0; k <= 4; k++) { const a = -Math.PI / 2 + (k / 4) * (Math.PI / 2); perfil.push([R - sh + sh * Math.cos(a), -w / 2 + sh + sh * Math.sin(a)]); }
+  for (let k = 0; k <= 4; k++) { const a = (k / 4) * (Math.PI / 2); perfil.push([R - sh + sh * Math.cos(a), w / 2 - sh + sh * Math.sin(a)]); }
+  perfil.push([R * 0.86, w / 2 + 0.006], [rR - 0.01, w / 2 - 0.012]);
+  const geoLlanta = new THREE.LatheGeometry(perfil.map(([r, y]) => new THREE.Vector2(r, y)), 40); geoLlanta.rotateZ(-Math.PI / 2);
+  const llanta = new THREE.Mesh(geoLlanta, matGoma); llanta.castShadow = true; g.add(llanta);
+  // cara del rin con rayos
+  const cara = new THREE.Shape(); cara.absarc(0, 0, rR, 0, Math.PI * 2, false);
+  const nR = t.radios, ang = (Math.PI * 2) / nR, hueco = ang * 0.55;
+  for (let k = 0; k < nR; k++) {
+    const a0 = k * ang + (ang - hueco) / 2, a1 = a0 + hueco, h = new THREE.Path();
+    h.absarc(0, 0, rR * 0.84, a0, a1, false); h.absarc(0, 0, rR * 0.36, a1 - hueco * 0.15, a0 + hueco * 0.15, true);
+    cara.holes.push(h);
+  }
+  const geoCara = new THREE.ExtrudeGeometry(cara, { depth: 0.02, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.006, bevelSegments: 2, curveSegments: 28 });
+  geoCara.rotateY(Math.PI / 2);
+  const rin = new THREE.Mesh(geoCara, matRin); rin.position.x = w / 2 - 0.04; g.add(rin);
+  const barril = new THREE.CylinderGeometry(rR, rR, w - 0.03, 28, 1, true); barril.rotateZ(Math.PI / 2);
+  g.add(new THREE.Mesh(barril, matDisco));
+  const disco = new THREE.CylinderGeometry(rR * 0.74, rR * 0.74, 0.025, 28); disco.rotateZ(Math.PI / 2);
+  const d = new THREE.Mesh(disco, matDisco); d.position.x = w / 2 - 0.085; g.add(d);
+  const maza = new THREE.CylinderGeometry(0.04, 0.045, 0.03, 16); maza.rotateZ(Math.PI / 2);
+  const mz = new THREE.Mesh(maza, matRin); mz.position.x = w / 2 - 0.02; g.add(mz);
+  return g;
+}
+function texSombraContacto(t) {
+  const Lx = t.dim.ancho + 0.7, Lz = t.dim.largo + 0.7, cw = 128, ch = Math.round((128 * Lz) / Lx);
+  const [c, g] = lienzo(cw, ch), img = g.createImageData(cw, ch), hx = t.dim.ancho / 2 - 0.08, hz = t.dim.largo / 2 - 0.15, rr = 0.3;
+  const ruedas = [];
+  for (const u of [t.ejeD, t.ejeT]) for (const s of [-1, 1]) ruedas.push([s * (t.dim.ancho / 2 - 0.15), u]);
+  for (let py = 0; py < ch; py++) for (let px = 0; px < cw; px++) {
+    const x = ((px + 0.5) / cw - 0.5) * Lx, z = ((py + 0.5) / ch - 0.5) * Lz;   // fila superior del lienzo = -Z local
+    const qx = Math.abs(x) - (hx - rr), qz = Math.abs(z) - (hz - rr);
+    const dist = Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - rr;
+    let a = 0.62 * (1 - suave(clamp((dist + 0.25) / 0.6, 0, 1)));
+    for (const [wx, wz] of ruedas) a += 0.45 * Math.exp(-(((x - wx) / 0.14) ** 2 + ((z - wz) / 0.3) ** 2));
+    const v = Math.round(clamp(a, 0, 0.9) * 255), i = (py * cw + px) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return { tex: texturaDe(c, { srgb: false }), Lx, Lz };
+}
+
+function construirPlantilla(clave) {
+  const t = TIPOS[clave], c = t.cab, g = new THREE.Group(), L2 = t.L / 2;
+  const zb = curva(t.zb), zt = curva(t.zt), hw = curva(t.hw), zr = curva(c.techo), ra = t.r + 0.05;
+  const altoMax = Math.max(...c.techo.map((p) => p[1]));
+  const agregar = (geo, mat, x, y, z, rol = null, sombra = true) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); if (rol) m.userData.rol = rol; m.castShadow = sombra; m.receiveShadow = true; g.add(m); return m;
+  };
+  const MATS = [matPinturaBase, matVidrio, matPlastico];
+
+  // carrocería inferior (capó, costados, maletero) con pasarruedas
+  const RB = 0.07;
+  const secInf = (u) => {
+    const e = Math.min(u + L2, L2 - u), k = e < RB ? RB - Math.sqrt(Math.max(0, RB * RB - (RB - e) ** 2)) : 0, w = hw(u) - k;
+    return seccionRedondeada(zb(u) + k * 0.6, zt(u) - k, w, w - 0.05, 0.08, 0.11, 0.018, 0.012, FILAS_INF);
+  };
+  const clasInf = (u, p, q, tapa) => (!tapa && t.revestimiento && p.tag !== 'techo' && q.tag !== 'techo' && Math.max(p.y, q.y) < t.revestimiento) ? G_PLASTICO : G_PINTURA;
+  const arcos = [t.ejeD, t.ejeT];
+  const deformar = (pos, k) => {
+    for (const ua of arcos) {
+      const du = pos[k + 2] - ua;
+      if (Math.abs(du) < ra) { const tope = t.r + Math.sqrt(ra * ra - du * du); if (pos[k + 1] < tope) pos[k + 1] = tope; }
+    }
+  };
+  const extrasInf = [t.ejeD - ra, t.ejeD + ra, t.ejeT - ra, t.ejeT + ra, ...(t.caja ? [t.caja.u0 - 0.02, t.caja.u0 + 0.02] : [])];
+  agregar(loft(estacionesPara(-L2, L2, 0.05, extrasInf, true), secInf, clasInf, deformar), MATS, 0, 0, 0, 'carroceria');
+
+  // cabina: parabrisas, techo y luneta en una sola superficie; ventanas asignadas por zona
+  const secCab = (u) => {
+    const base = zt(u) - 0.06, top = Math.max(zr(u), base + 0.02), wb = hw(u) - 0.1;
+    const fr = clamp((top - zt(u)) / (altoMax - zt(u)), 0, 1);
+    return seccionRedondeada(base, top, wb, wb + (c.anchoTecho - wb) * Math.pow(fr, 0.8), 0.02, 0.075, 0.025, 0, FILAS_CAB);
+  };
+  const lat = t.vidrios.laterales;
+  const clasCab = (u, p, q, tapa) => {
+    if (tapa) return G_PINTURA;
+    if (p.tag === 'lado' && q.tag === 'lado') {
+      if (Math.min(p.f, q.f) < 0.08 || zr(u) - zt(u) < 0.2) return G_PINTURA;
+      if (lat.some((r) => enRango(u, r))) return G_VIDRIO;
+      return u > lat[0][0] && u < lat[lat.length - 1][1] ? G_PLASTICO : G_PINTURA;   // parantes entre ventanas en negro
+    }
+    if (p.tag === 'techo' && q.tag === 'techo') return enRango(u, t.vidrios.parabrisas) || enRango(u, t.vidrios.luneta) ? G_VIDRIO : G_PINTURA;
+    return G_PINTURA;
+  };
+  const extrasCab = [...lat.flat(), ...t.vidrios.parabrisas, ...t.vidrios.luneta];
+  agregar(loft(estacionesPara(c.uIni, c.uFin, 0.04, extrasCab), secCab, clasCab), MATS, 0, 0, 0, 'carroceria');
+
+  // pasarruedas oscuros (evitan ver a través del hueco de la rueda)
+  for (const u of arcos) {
+    const geo = new THREE.CylinderGeometry(ra - 0.012, ra - 0.012, 2 * hw(u) - 0.06, 22, 1, true, 0, Math.PI); geo.rotateZ(Math.PI / 2);
+    agregar(geo, matPasarrueda, 0, t.r, u, null, false);
+  }
+  // frente
+  const fa = t.faros, st = t.stops, pr = t.parrilla, to = t.toma;
+  for (const s of [-1, 1]) {
+    agregar(new RoundedBoxGeometry(fa.w, fa.h, 0.08, 2, 0.025), matFaro, s * fa.x, fa.y, L2 - 0.03, null, false).rotation.y = s * 0.25;
+    agregar(new RoundedBoxGeometry(st.w, st.h, 0.08, 2, 0.025), matStop, s * st.x, st.y, -L2 + 0.03, null, false).rotation.y = -s * 0.25;
+  }
+  agregar(new RoundedBoxGeometry(pr.w, pr.h, 0.06, 2, 0.02), matParrilla, 0, pr.y, L2 - 0.022, null, false);
+  agregar(new RoundedBoxGeometry(to.w, to.h, 0.05, 2, 0.02), matPlastico, 0, to.y, L2 - 0.02, null, false);
+  agregar(new RoundedBoxGeometry(2 * hw(-L2) - 0.3, 0.08, 0.06, 2, 0.02), matPlastico, 0, zb(-L2) + 0.07, -L2 + 0.005, null, false);
+  // caja de carga abierta (camioneta)
+  if (t.caja) {
+    const k = t.caja, largo = k.u0 - k.u1, zc = (k.u0 + k.u1) / 2, alto = k.borde - k.piso + 0.02, hwc = hw(zc);
+    const geo = new THREE.PlaneGeometry(2 * hwc - 0.16, largo); geo.rotateX(-Math.PI / 2);
+    agregar(geo, matCaja, 0, k.piso + 0.022, zc, null, false);
+    for (const s of [-1, 1]) agregar(new RoundedBoxGeometry(0.07, alto, largo, 2, 0.02), matPinturaBase, s * (hwc - 0.035), k.piso + alto / 2, zc, 'pintura');
+    agregar(new RoundedBoxGeometry(2 * hwc - 0.02, alto, 0.06, 2, 0.02), matPinturaBase, 0, k.piso + alto / 2, k.u1 + 0.03, 'pintura');
+    agregar(new RoundedBoxGeometry(2 * hwc - 0.1, 0.17, 0.13, 2, 0.03), matPlastico, 0, t.placaT, -L2 - (t.salienteT || 0) + 0.065);
+  }
+  // placas con marco y tornillos
+  for (const [sentido, y, saliente] of [[1, t.placaD, 0], [-1, t.placaT, t.salienteT || 0]]) {
+    const grp = new THREE.Group(); grp.position.set(0, y, sentido * (L2 + saliente + 0.004)); if (sentido < 0) grp.rotation.y = Math.PI;
+    const resp = new THREE.Mesh(geoRespaldoPlaca, matMarcoPlaca); resp.position.z = -0.004; grp.add(resp);
+    const pl = new THREE.Mesh(geoPlaca, matPlacaBase); pl.position.z = 0.0075;
+    pl.userData.rol = 'placa'; pl.userData.lado = sentido > 0 ? 'delantera' : 'trasera'; grp.add(pl);
+    for (const sx of [-1, 1]) { const tor = new THREE.Mesh(geoTornillo, matCromo); tor.rotation.x = Math.PI / 2; tor.position.set(sx * 0.155, 0.056, 0.0085); grp.add(tor); }
+    g.add(grp);
+  }
+  // ruedas: grupo exterior fijo + grupo interior que gira
+  const plantillaRueda = construirRueda(t);
+  for (const u of arcos) for (const s of [-1, 1]) {
+    const ext = new THREE.Group(); ext.position.set(s * (hw(u) - t.anchoLlanta / 2 - 0.025), t.r, u); if (s < 0) ext.rotation.y = Math.PI;
+    const giro = plantillaRueda.clone(); giro.userData.rol = 'rueda'; giro.userData.signo = s; ext.add(giro);
+    const pinza = new THREE.Mesh(new RoundedBoxGeometry(0.05, 0.11, 0.14, 2, 0.015), matDisco); pinza.position.set(t.anchoLlanta / 2 - 0.1, 0.09, -0.1); ext.add(pinza);
+    g.add(ext);
+  }
+  g.updateMatrixWorld(true);
+  const caja = new THREE.Box3().setFromObject(g);   // dimensiones reales sin espejos
+  t.dim = { largo: 2 * Math.max(-caja.min.z, caja.max.z), ancho: 2 * Math.max(-caja.min.x, caja.max.x), alto: caja.max.y };
+  // espejos
+  const uM = c.uFin - 0.28;
+  for (const s of [-1, 1]) {
+    agregar(new RoundedBoxGeometry(0.2, 0.11, 0.12, 2, 0.035), matPinturaBase, s * (hw(uM) + 0.04), zt(uM) + 0.12, uM, 'pintura');
+    agregar(new RoundedBoxGeometry(0.08, 0.05, 0.07, 1, 0.01), matPlastico, s * (hw(uM) - 0.06), zt(uM) + 0.08, uM + 0.02, null, false);
+  }
+  // sombra de contacto bajo el vehículo
+  const sc = texSombraContacto(t);
+  const geoS = new THREE.PlaneGeometry(sc.Lx, sc.Lz); geoS.rotateX(-Math.PI / 2);
+  const sombra = new THREE.Mesh(geoS, new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: sc.tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  sombra.position.y = 0.004; sombra.renderOrder = -1; sombra.raycast = () => {}; g.add(sombra);
+  return g;
+}
+const plantillas = Object.fromEntries(Object.keys(TIPOS).map((k) => [k, construirPlantilla(k)]));
+
+// ---------------------------------------------------------------------------
+// Placas ecuatorianas: ABC-1234. 1.ª letra = provincia; 2.ª letra excluye las de uso comercial/oficial.
+// ---------------------------------------------------------------------------
+const PROVINCIAS = 'ABUCXHOEWGILRMVNSPKQTZYJ';
+const SEGUNDA = 'BCDFGHIJKLNOPQRSTVWY';
+const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const RE_PLACA = /^[A-Z]{3}-\d{4}$/, RE_PLACA_ANT = /^[A-Z]{3}-\d{3}$/;
+const azar = (s) => s[Math.floor(Math.random() * s.length)];
+function placaAleatoria() {
+  for (let n = 0; n < 200; n++) {
+    const p = azar(PROVINCIAS) + azar(SEGUNDA) + azar(LETRAS) + '-' + String(1 + Math.floor(Math.random() * 9999)).padStart(4, '0');
+    if (!vehiculos.some((v) => v.placa === p)) return p;
+  }
+  return 'PBA-' + String(Date.now() % 10000).padStart(4, '0');
+}
+
+// ---------------------------------------------------------------------------
+// Estado de vehículos
+// ---------------------------------------------------------------------------
+const vehiculos = [];
+let secuenciaId = 1;
+const CAMPOS_DATOS = ['placa', 'tipo', 'color', 'orientacion', 'plazaAsignada', 'plazaReal', 'despLateral', 'despLongitudinal', 'rotacion', 'caso', 'lado'];
+const datosDe = (v) => Object.fromEntries(CAMPOS_DATOS.map((k) => [k, v[k]]));
+function num(v, def, min, max) { const n = parseFloat(v); return Number.isFinite(n) ? clamp(n, min, max) : def; }
+function normalizarDatos(d) {
+  const plazaReal = plazaPorId(d.plazaReal) ? d.plazaReal : null;
+  return {
+    placa: String(d.placa ?? '').trim().toUpperCase().slice(0, 12),
+    tipo: TIPOS[d.tipo] ? d.tipo : 'sedan',
+    color: /^#[0-9a-f]{6}$/i.test(d.color || '') ? d.color.toLowerCase() : '#b9bdc2',
+    orientacion: d.orientacion === 'reversa' ? 'reversa' : 'frente',
+    plazaReal,
+    plazaAsignada: plazaPorId(d.plazaAsignada) ? d.plazaAsignada : plazaReal,
+    despLateral: num(d.despLateral, 0, -3, 3),
+    despLongitudinal: num(d.despLongitudinal, 0, -1, 3),
+    rotacion: num(d.rotacion, 0, -90, 90),
+    caso: ['ninguno', 'sobre_linea', 'dos_plazas'].includes(d.caso) ? d.caso : 'ninguno',
+    lado: d.lado === 'anterior' ? 'anterior' : 'siguiente',
+  };
+}
+function yawBase(p, orientacion) {   // yaw = 0 → frente del auto hacia +Z
+  const haciaMuro = p.s > 0 ? 0 : Math.PI;
+  return orientacion === 'frente' ? haciaMuro : normAng(haciaMuro + Math.PI);
+}
+function calcularPose(v) {
+  const p = plazaPorId(v.plazaReal), t = TIPOS[v.tipo];
+  let signo = v.lado === 'anterior' ? -1 : 1;
+  if (v.caso !== 'ninguno' && !vecina(p, signo)) signo = -signo;   // en el extremo de la fila se invade hacia el otro lado
+  let extra = 0;
+  if (v.caso === 'sobre_linea') extra = signo * (PLAZA_ANCHO / 2 - t.dim.ancho / 2 + 0.3);
+  else if (v.caso === 'dos_plazas') extra = signo * (PLAZA_ANCHO / 2);
+  const lat = v.despLateral + extra;
+  return {
+    x: p.x + p.latX * lat,
+    z: p.z - p.s * v.despLongitudinal,        // + hacia el pasillo
+    yaw: normAng(yawBase(p, v.orientacion) + v.rotacion * D2R),
+    lateralTotal: lat,
+    ladoEfectivo: v.caso === 'ninguno' ? null : (signo > 0 ? 'siguiente' : 'anterior'),
+  };
+}
+function huella(pose, dim) {
+  const c = Math.cos(pose.yaw), s = Math.sin(pose.yaw), hw = dim.ancho / 2, hl = dim.largo / 2;
+  return [[-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl]].map(([lx, lz]) => [pose.x + lx * c + lz * s, pose.z - lx * s + lz * c]);
+}
+function plazasTocadas(pts) {
+  const total = Math.abs(areaPoligono(pts)), res = [];
+  for (const p of PLAZAS) {
+    const a = areaInterseccion(pts, rectPlaza(p));
+    if (a > 0.05) res.push({ plaza: p.id, area_m2: redondear(a, 2), fraccion: redondear(a / total, 3) });
+  }
+  return res.sort((a, b) => b.area_m2 - a.area_m2);
+}
+function evaluar(v) {
+  const p = plazaPorId(v.plazaReal), t = TIPOS[v.tipo], pts = huella(v.pose, t.dim);
+  const motivos = [];
+  if (v.plazaReal !== v.plazaAsignada) motivos.push(`Está en ${v.plazaReal} pero su plaza asignada es ${v.plazaAsignada}`);
+  let latMin = Infinity, latMax = -Infinity, fMin = Infinity, fMax = -Infinity;
+  for (const [x, z] of pts) {
+    const la = (x - p.x) * p.latX, f = (z - p.z) * p.s;
+    latMin = Math.min(latMin, la); latMax = Math.max(latMax, la); fMin = Math.min(fMin, f); fMax = Math.max(fMax, f);
+  }
+  const tocadas = plazasTocadas(pts);
+  const ocupadas = tocadas.filter((o) => o.fraccion >= 0.3);
+  const lim = PLAZA_ANCHO / 2 - LINEA / 2;   // borde interior de la línea
+  if (ocupadas.length > 1) motivos.push(`Ocupa ${ocupadas.length} plazas (${ocupadas.map((o) => o.plaza).join(' y ')})`);
+  else {
+    const hacia = (sg) => vecina(p, sg)?.id ?? 'el extremo de la fila';
+    if (latMax > lim + 0.02) motivos.push(`Pisa o cruza la línea lateral hacia ${hacia(1)} (${cm(latMax - lim)} cm)`);
+    if (latMin < -lim - 0.02) motivos.push(`Pisa o cruza la línea lateral hacia ${hacia(-1)} (${cm(-latMin - lim)} cm)`);
+  }
+  const tolF = Math.max(0, (t.dim.largo - PLAZA_LARGO) / 2) + 0.15;   // un vehículo largo sobresale algo aunque esté centrado
+  const salePasillo = -fMin - PLAZA_LARGO / 2, saleFondo = fMax - PLAZA_LARGO / 2;
+  if (salePasillo > tolF) motivos.push(`Sobresale hacia el pasillo (${cm(salePasillo)} cm fuera de la plaza)`);
+  if (saleFondo > tolF) motivos.push(`Rebasa la línea de fondo (${cm(saleFondo)} cm)`);
+  if (Math.abs(v.rotacion) > TOL_ROT) motivos.push(`Girado ${redondear(v.rotacion, 1)}° respecto al eje de la plaza`);
+  return {
+    correcto: motivos.length === 0, motivos, huella: pts,
+    plazasOcupadas: ocupadas.map((o) => o.plaza), plazasTocadas: tocadas,
+    margenes: { lateral_min_m: redondear(latMin), lateral_max_m: redondear(latMax), hacia_pasillo_m: redondear(salePasillo), hacia_fondo_m: redondear(saleFondo) },
+  };
+}
+function solapamientos(v) {
+  return vehiculos.filter((o) => o !== v && areaInterseccion(v.eval.huella, o.eval.huella) > 0.02);
+}
+
+function construirModelo(v) {
+  if (!v.lienzoPlaca) { [v.lienzoPlaca] = lienzo(1024, 384); v.texPlaca = texturaDe(v.lienzoPlaca); }
+  dibujarPlaca(v.lienzoPlaca, v.placa); v.texPlaca.needsUpdate = true;
+  const c = ILUM[ilumActual];
+  v.matPintura = materialPintura(v.color);
+  // leve emisión: simula la lámina retrorreflectiva de la placa
+  v.matPlaca = new THREE.MeshStandardMaterial({ map: v.texPlaca, emissive: 0xffffff, emissiveMap: v.texPlaca, emissiveIntensity: c.placaEmis, roughness: 0.35, metalness: 0 });
+  const mats = [v.matPintura, matVidrio, matPlastico];
+  v.obj = plantillas[v.tipo].clone(true);
+  v.ruedas = []; v.placas = [];
+  v.obj.traverse((o) => {
+    if (o.userData.rol === 'carroceria') o.material = mats;
+    else if (o.userData.rol === 'pintura') o.material = v.matPintura;
+    else if (o.userData.rol === 'placa') { o.material = v.matPlaca; v.placas.push(o); }
+    else if (o.userData.rol === 'rueda') v.ruedas.push(o);
+  });
+  v.obj.userData.vehiculo = v.id;
+  scene.add(v.obj);
+}
+function liberarModelo(v) { scene.remove(v.obj); v.matPintura.dispose(); v.matPlaca.dispose(); }
+function aplicarPose(v, pose) { v.obj.position.set(pose.x, 0, pose.z); v.obj.rotation.set(0, pose.yaw, 0); }
+
+function crearVehiculo(datos, { animar = false } = {}) {
+  const d = normalizarDatos(datos);
+  if (!d.plazaReal) throw new Error('Plaza destino inválida');
+  if (!d.placa) d.placa = placaAleatoria();
+  const v = { id: 'V' + String(secuenciaId++).padStart(2, '0'), ...d, anim: null };
+  construirModelo(v);
+  vehiculos.push(v);
+  v.pose = calcularPose(v); v.eval = evaluar(v);
+  if (animar) iniciarAnimacion(v); else aplicarPose(v, v.pose);
+  marcarSombras(); programarUI();
+  return v;
+}
+function actualizarVehiculo(v, cambios, { animar = false } = {}) {
+  const d = normalizarDatos({ ...datosDe(v), ...cambios });
+  if (!d.plazaReal) return;
+  if (!d.placa) d.placa = v.placa;
+  const cambioTipo = d.tipo !== v.tipo, cambioPlaza = d.plazaReal !== v.plazaReal;
+  const cambioColor = d.color !== v.color, cambioPlaca = d.placa !== v.placa;
+  Object.assign(v, d);
+  if (cambioTipo) { liberarModelo(v); construirModelo(v); }
+  else {
+    if (cambioColor) ajustarPintura(v.matPintura, v.color);
+    if (cambioPlaca) { dibujarPlaca(v.lienzoPlaca, v.placa); v.texPlaca.needsUpdate = true; }
+  }
+  v.pose = calcularPose(v); v.eval = evaluar(v);
+  if (animar && cambioPlaza) iniciarAnimacion(v); else { v.anim = null; aplicarPose(v, v.pose); }
+  marcarSombras(); programarUI();
+}
+function eliminarVehiculo(v) {
+  if (editando === v) terminarEdicion(false, true);
+  liberarModelo(v); v.texPlaca.dispose();
+  vehiculos.splice(vehiculos.indexOf(v), 1);
+  marcarSombras(); programarUI();
+}
+function vaciar() {
+  if (editando) terminarEdicion(false, true);
+  while (vehiculos.length) { const v = vehiculos.pop(); liberarModelo(v); v.texPlaca.dispose(); }
+  marcarSombras(); programarUI();
+}
+
+// ---------------------------------------------------------------------------
+// Animación de entrada: llega por el pasillo desde la rampa y entra de frente o de reversa
+// ---------------------------------------------------------------------------
+function bezier(p0, p1, p2, p3, n = 40) {
+  const r = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t, a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+    r.push([a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0], a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]]);
+  }
+  return r;
+}
+function segmento(pts, sentido) {
+  const s = { pts: [], dist: [0], sentido };
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    let yaw = Math.atan2(b[0] - a[0], b[1] - a[1]); if (sentido < 0) yaw = normAng(yaw + Math.PI);
+    s.pts.push({ x: pts[i][0], z: pts[i][1], yaw });
+    if (i > 0) s.dist.push(s.dist[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  }
+  s.total = s.dist[s.dist.length - 1];
+  s.dur = Math.max(0.6, s.total / (sentido > 0 ? 3.2 : 2.2));
+  return s;
+}
+function iniciarAnimacion(v) {
+  const p = plazaPorId(v.plazaReal), dest = v.pose;
+  const carril = -p.s * 1.3;                                   // se abre hacia el lado opuesto para girar
+  const frenteZ = p.z - p.s * (PLAZA_LARGO / 2 + 1.6);          // punto del pasillo frente a la plaza
+  const xIni = Math.max(-MURO_X + 0.5, dest.x - 8);
+  const segs = [];
+  if (v.orientacion === 'frente') {
+    segs.push(segmento(bezier([xIni, carril], [dest.x - 1.5, carril], [dest.x, frenteZ], [dest.x, dest.z]), 1));
+  } else {
+    const xGiro = Math.min(MURO_X - 1.5, dest.x + 3.8);
+    segs.push(segmento([[xIni, carril], [xGiro, carril]], 1));
+    segs.push(segmento(bezier([xGiro, carril], [dest.x + 1.2, carril], [dest.x, frenteZ], [dest.x, dest.z]), -1));
+  }
+  const ult = segs[segs.length - 1], n = ult.pts.length;
+  for (let i = 0; i < n; i++) ult.pts[i].yaw = lerpAng(ult.pts[i].yaw, dest.yaw, suave(clamp((i / (n - 1) - 0.6) / 0.4, 0, 1)));
+  Object.assign(ult.pts[n - 1], { x: dest.x, z: dest.z, yaw: dest.yaw });
+  v.anim = { segs, i: 0, t: 0, sPrev: 0 };
+  const p0 = segs[0].pts[0];
+  aplicarPose(v, { x: p0.x, z: p0.z, yaw: p0.yaw });
+}
+function actualizarAnimaciones(dt) {
+  let alguna = false;
+  for (const v of vehiculos) {
+    const a = v.anim; if (!a) continue;
+    alguna = true; a.t += dt;
+    while (a.i < a.segs.length && a.t >= a.segs[a.i].dur) { a.t -= a.segs[a.i].dur; a.i++; a.sPrev = 0; }
+    if (a.i >= a.segs.length) { v.anim = null; aplicarPose(v, v.pose); continue; }
+    const seg = a.segs[a.i], u = a.t / seg.dur;
+    const s = (u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2) * seg.total;
+    let j = 1; while (j < seg.dist.length - 1 && seg.dist[j] < s) j++;
+    const d0 = seg.dist[j - 1], d1 = seg.dist[j], f = d1 > d0 ? clamp((s - d0) / (d1 - d0), 0, 1) : 0;
+    const A = seg.pts[j - 1], B = seg.pts[j];
+    v.obj.position.set(A.x + (B.x - A.x) * f, 0, A.z + (B.z - A.z) * f);
+    v.obj.rotation.y = lerpAng(A.yaw, B.yaw, f);
+    const ds = s - a.sPrev; a.sPrev = s;
+    for (const r of v.ruedas) r.rotation.x += (ds * seg.sentido * r.userData.signo) / TIPOS[v.tipo].r;
+  }
+  return alguna;
+}
+function finalizarAnimaciones() {
+  for (const v of vehiculos) if (v.anim) { v.anim = null; aplicarPose(v, v.pose); }
+  marcarSombras();
+}
+
+// ============================================================================
+// Iluminación: aplicar condición
+// ============================================================================
+function aplicarIluminacion(clave) {
+  const c = ILUM[clave]; if (!c) return;
+  ilumActual = clave;
+  renderer.toneMappingExposure = c.exposicion;
+  LUMINARIAS.forEach((l, i) => {
+    const f = c.factores[i];
+    l.difusor.material = f >= 0.9 ? MAT_DIFUSOR.on : f > 0 ? MAT_DIFUSOR.tenue : MAT_DIFUSOR.off;
+    if (l.luz) l.luz.intensity = l.base * f;
+  });
+  matVentana.color.setRGB(...c.ventana);
+  for (const s of solesVentana) s.visible = c.sol;
+  for (const d of destellosVentana) d.visible = c.sol && !CALIDADES[calidad].bloom;
+  matPiso.roughnessMap = c.humedo ? texRugMojado : texRugSeco;   // charcos y concreto mojado
+  matPiso.normalScale.setScalar(c.humedo ? 0.1 : 0.55);
+  matPiso.color.setScalar(c.humedo ? 0.72 : 1);
+  matPiso.needsUpdate = true;
+  for (const v of vehiculos) v.matPlaca.emissiveIntensity = c.placaEmis;
+  $$('#segIlum button').forEach((b) => b.classList.toggle('on', b.dataset.ilum === clave));
+  $('#descIlum').textContent = c.desc;
+  capturarEntorno();   // los reflejos y la luz ambiental siguen a la condición elegida
+  marcarSombras();
+}
+function aplicarColorLineas(clave) {
+  if (!COLORES_LINEA[clave]) return;
+  componerPiso(COLORES_LINEA[clave]); $('#selLineas').value = clave; pedirRender();
+}
+function aplicarSombras(activas) {
+  renderer.shadowMap.enabled = activas;
+  scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
+  for (const v of vehiculos) { v.matPintura.needsUpdate = true; v.matPlaca.needsUpdate = true; }
+  $('#chkSombras').checked = activas;
+  marcarSombras();
+}
+
+// ============================================================================
+// Vistas, render y overlay CCTV
+// ============================================================================
+let modo = 'dividida';
+function vistasActuales(W, H) {
+  if (modo === 'libre') return [{ cam: camLibre, idx: -1, x: 0, y: 0, w: W, h: H }];
+  const ajustar = (aw, ah) => { let w = aw, h = w / RELACION; if (h > ah) { h = ah; w = h * RELACION; } return [Math.floor(w), Math.floor(h)]; };
+  if (modo === 'dividida') {
+    const gap = 6, [w, h] = ajustar((W - gap) / 2, H);
+    const x0 = Math.floor((W - (2 * w + gap)) / 2), y0 = Math.floor((H - h) / 2);
+    return [{ cam: cctv[0], idx: 0, x: x0, y: y0, w, h }, { cam: cctv[1], idx: 1, x: x0 + w + gap, y: y0, w, h }];
+  }
+  const i = modo === 'cam1' ? 0 : 1, [w, h] = ajustar(W, H);
+  return [{ cam: cctv[i], idx: i, x: Math.floor((W - w) / 2), y: Math.floor((H - h) / 2), w, h }];
+}
+function renderizar() {
+  const W = vista.clientWidth, H = vista.clientHeight;
+  if (!W || !H) return;
+  if (sombrasSucias) { renderer.shadowMap.needsUpdate = true; sombrasSucias = false; }
+  renderer.setScissorTest(false); renderer.setViewport(0, 0, W, H); renderer.clear();
+  const post = CALIDADES[calidad].post;
+  for (const vp of vistasActuales(W, H)) {
+    const yGL = H - vp.y - vp.h;
+    renderer.setViewport(vp.x, yGL, vp.w, vp.h); renderer.setScissor(vp.x, yGL, vp.w, vp.h); renderer.setScissorTest(true);
+    if (vp.cam === camLibre) { camLibre.aspect = vp.w / vp.h; camLibre.updateProjectionMatrix(); }
+    // la última pasada del compositor dibuja en la región de la vista (viewport + scissor)
+    if (post) obtenerPipeline(vp.cam, vp.w, vp.h).composer.render(); else renderer.render(scene, vp.cam);
+  }
+  renderer.setScissorTest(false);
+}
+
+let overlayActivo = true;
+const tilesRuido = [0, 1, 2, 3].map((n) => {
+  const [c, g] = lienzo(256, 256), img = g.createImageData(256, 256), r = mulberry32(99 + n);
+  for (let i = 0; i < img.data.length; i += 4) { const v = r() * 255; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; }
+  g.putImageData(img, 0, 0); return c;
+});
+const tileBarrido = (() => { const [c, g] = lienzo(4, 3); g.fillStyle = 'rgba(0,0,0,1)'; g.fillRect(0, 0, 4, 1); return c; })();
+const cachePatrones = new WeakMap();
+function patrones(g) {
+  let p = cachePatrones.get(g);
+  if (!p) { p = { ruido: tilesRuido.map((c) => g.createPattern(c, 'repeat')), barrido: g.createPattern(tileBarrido, 'repeat') }; cachePatrones.set(g, p); }
+  return p;
+}
+function fechaCCTV(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}  ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function texto(g, s, x, y, alin, color = '#f2f2f2') {
+  g.textAlign = alin; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.strokeText(s, x, y); g.fillStyle = color; g.fillText(s, x, y);
+}
+function dibujarOverlayCam(g, idx, x, y, w, h, fecha) {
+  const pat = patrones(g), info = CAM_INFO[idx];
+  g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+  const cx = x + w / 2, cy = y + h / 2, r = Math.hypot(w, h) / 2;
+  const gr = g.createRadialGradient(cx, cy, r * 0.45, cx, cy, r * 1.02);
+  gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.55)');
+  g.fillStyle = gr; g.fillRect(x, y, w, h);
+  const ox = Math.random() * 256, oy = Math.random() * 256;
+  g.globalAlpha = 0.085; g.translate(ox, oy); g.fillStyle = pat.ruido[Math.floor(Math.random() * 4)]; g.fillRect(x - ox, y - oy, w, h);
+  g.translate(-ox, -oy); g.globalAlpha = 0.1; g.fillStyle = pat.barrido; g.fillRect(x, y, w, h);
+  g.globalAlpha = 1;
+  const fs = Math.max(11, Math.round(h * 0.034)), m = Math.round(fs * 0.8);
+  g.font = `600 ${fs}px ui-monospace, "DejaVu Sans Mono", Consolas, monospace`; g.textBaseline = 'top';
+  texto(g, `${info.nombre}  ${info.etiqueta}`, x + m, y + m, 'left');
+  texto(g, fechaCCTV(fecha), x + w - m, y + m, 'right');
+  g.textBaseline = 'bottom';
+  const rec = fecha.getMilliseconds() < 600;
+  texto(g, rec ? '● REC' : '  REC', x + m, y + h - m, 'left', rec ? '#ff3b30' : '#f2f2f2');
+  texto(g, 'SÓTANO 1 · PARQUEADERO', x + w - m, y + h - m, 'right');
+  g.restore();
+}
+function dibujarOverlay() {
+  const W = vista.clientWidth, H = vista.clientHeight, dpr = renderer.getPixelRatio();
+  octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, capaOverlay.width, capaOverlay.height);
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (modo === 'libre') {
+    octx.font = '600 12px ui-monospace, monospace'; octx.textBaseline = 'top';
+    texto(octx, 'CÁMARA LIBRE · DEPURACIÓN (arrastrar: orbitar · rueda: zoom · clic derecho: desplazar)', W - 12, 12, 'right');
+    return;
+  }
+  if (!overlayActivo) return;
+  const ahora = new Date();
+  for (const vp of vistasActuales(W, H)) dibujarOverlayCam(octx, vp.idx, vp.x, vp.y, vp.w, vp.h, ahora);
+}
+
+function redimensionar() {
+  const W = vista.clientWidth, H = vista.clientHeight;
+  if (!W || !H) return;
+  renderer.setSize(W, H, false);
+  const dpr = renderer.getPixelRatio();
+  capaOverlay.width = Math.round(W * dpr); capaOverlay.height = Math.round(H * dpr);
+  pedirRender(); ultOverlay = 0;
+}
+new ResizeObserver(redimensionar).observe(vista);
+
+// Captura de una cámara a resolución fija (independiente del tamaño de la ventana)
+function capturarCamara(i, ancho, alto, conOverlay = overlayActivo) {
+  const cam = cctv[i], prevPR = renderer.getPixelRatio(), prev = renderer.getSize(new THREE.Vector2());
+  finalizarAnimacionesSiHay();
+  if (sombrasSucias) { renderer.shadowMap.needsUpdate = true; sombrasSucias = false; }
+  renderer.setPixelRatio(1); renderer.setSize(ancho, alto, false);
+  renderer.setScissorTest(false); renderer.setViewport(0, 0, ancho, alto);
+  cam.aspect = ancho / alto; cam.updateProjectionMatrix();
+  let temporal = null;
+  if (CALIDADES[calidad].post) { temporal = crearPipeline(cam, ancho, alto, 1, ancho * alto > 4e6 ? 0 : undefined); temporal.composer.render(); }
+  else renderer.render(scene, cam);
+  const [c, g] = lienzo(ancho, alto);
+  g.drawImage(renderer.domElement, 0, 0);
+  if (temporal) liberarPipeline(temporal);
+  if (conOverlay) dibujarOverlayCam(g, i, 0, 0, ancho, alto, new Date());
+  cam.aspect = RELACION; cam.updateProjectionMatrix();
+  renderer.setSize(prev.x, prev.y, false); renderer.setPixelRatio(prevPR);
+  renderizar();   // restaura el cuadro visible de inmediato
+  return c;
+}
+function finalizarAnimacionesSiHay() { if (vehiculos.some((v) => v.anim)) finalizarAnimaciones(); }
+function resolucionRef() { const [w, h] = $('#selRes').value.split('x').map(Number); return [w, h]; }
+
+// ============================================================================
+// Verdad de terreno (exportación / importación)
+// ============================================================================
+const raycaster = new THREE.Raycaster();
+const vec3 = (v) => ({ x: redondear(v.x, 4), y: redondear(v.y, 4), z: redondear(v.z, 4) });
+function proyectar(cam, p, ancho, alto) {
+  const v = p.clone().project(cam);
+  return { x: ((v.x + 1) / 2) * ancho, y: ((1 - v.y) / 2) * alto, delante: v.z > -1 && v.z < 1 };
+}
+function fraccionSinOclusion(origen, puntos, propios) {
+  const objetos = [...ocluyentes, ...vehiculos.map((v) => v.obj)];
+  let libres = 0; const dir = new THREE.Vector3();
+  for (const p of puntos) {
+    dir.subVectors(p, origen); const dist = dir.length(); dir.normalize();
+    raycaster.set(origen, dir); raycaster.near = 0.12; raycaster.far = Math.max(0.13, dist - 0.002);
+    if (!raycaster.intersectObjects(objetos, true).some((h) => !propios.has(h.object))) libres++;
+  }
+  return libres / puntos.length;
+}
+function infoCamaras(ancho, alto) {
+  return cctv.map((cam, i) => {
+    const a = ajustesCam[i];
+    cam.aspect = RELACION; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+    const fy = alto / 2 / Math.tan((a.fov * D2R) / 2), fx = fy * (ancho / alto) / RELACION;
+    return {
+      id: CAM_INFO[i].id, nombre: CAM_INFO[i].nombre, plazasObjetivo: CAM_INFO[i].plazas,
+      ajustes: { ...a },
+      posicion: { x: a.x, y: a.y, z: a.z },
+      rotacion_grados: { paneo: a.pan, inclinacion: a.tilt, giro: a.roll, orden_euler: 'YXZ' },
+      fov_vertical_grados: a.fov,
+      fov_horizontal_grados: redondear(2 * Math.atan(Math.tan((a.fov * D2R) / 2) * RELACION) * R2D, 3),
+      intrinsecos: { ancho, alto, fx: redondear(fx, 3), fy: redondear(fy, 3), cx: ancho / 2, cy: alto / 2 },
+      matriz_mundo_a_camara: cam.matrixWorldInverse.toArray().map((n) => redondear(n, 6)),
+      matriz_proyeccion: cam.projectionMatrix.toArray().map((n) => redondear(n, 6)),
+    };
+  });
+}
+function estadoVerdadTerreno() {
+  finalizarAnimacionesSiHay();
+  scene.updateMatrixWorld(true);
+  const [ancho, alto] = resolucionRef();
+  const camaras = infoCamaras(ancho, alto);
+  const dentro = (q) => q.delante && q.x >= 0 && q.x <= ancho && q.y >= 0 && q.y <= alto;
+  const r1 = (n) => redondear(n, 1);
+
+  const plazas = PLAZAS.map((p) => {
+    const esquinas = rectPlaza(p).map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const proyecciones = {};
+    cctv.forEach((cam, i) => {
+      const pts = esquinas.map((e) => proyectar(cam, e, ancho, alto));
+      const validos = pts.every((q) => q.delante);   // un punto detrás de la cámara no tiene proyección útil
+      proyecciones[CAM_INFO[i].id] = { completa_en_imagen: validos && pts.every(dentro), poligono_px: validos ? pts.map((q) => [r1(q.x), r1(q.y)]) : null };
+    });
+    const ocupante = vehiculos.find((v) => v.plazaReal === p.id);
+    return {
+      id: p.id, fila: p.fila, centro: { x: p.x, y: 0, z: p.z }, ancho_m: PLAZA_ANCHO, largo_m: PLAZA_LARGO,
+      esquinas: esquinas.map(vec3),
+      ocupada_por: ocupante?.placa ?? null,
+      tocada_por: vehiculos.filter((v) => v.eval.plazasTocadas.some((o) => o.plaza === p.id)).map((v) => v.placa),
+      asignada_a: vehiculos.filter((v) => v.plazaAsignada === p.id).map((v) => v.placa),
+      proyecciones,
+    };
+  });
+
+  const vehs = vehiculos.map((v) => {
+    const t = TIPOS[v.tipo];
+    const placas = v.placas.map((m) => {
+      const esq = [[-0.2, -0.075], [0.2, -0.075], [0.2, 0.075], [-0.2, 0.075]];
+      const esquinas = esq.map(([x, y]) => new THREE.Vector3(x, y, 0.001).applyMatrix4(m.matrixWorld));
+      const muestras = [[0, 0], ...esq.map(([x, y]) => [x * 0.85, y * 0.8])].map(([x, y]) => new THREE.Vector3(x, y, 0.001).applyMatrix4(m.matrixWorld));
+      const centro = muestras[0];
+      const normal = new THREE.Vector3(0, 0, 1).transformDirection(m.matrixWorld);
+      const propios = new Set(m.parent.children);
+      const porCam = {};
+      cctv.forEach((cam, i) => {
+        const pts = esquinas.map((e) => proyectar(cam, e, ancho, alto));
+        const haciaCam = cam.position.clone().sub(centro), dist = haciaCam.length();
+        const coseno = normal.dot(haciaCam.normalize());
+        const nDentro = pts.filter(dentro).length;
+        const xs = pts.map((q) => q.x), ys = pts.map((q) => q.y), validos = pts.every((q) => q.delante);
+        porCam[CAM_INFO[i].id] = {
+          en_imagen: nDentro === 4 ? 'completa' : nDentro > 0 ? 'parcial' : 'fuera',
+          de_frente_a_camara: coseno > 0,
+          angulo_vision_grados: redondear(Math.acos(clamp(coseno, -1, 1)) * R2D, 1),
+          distancia_m: redondear(dist, 3),
+          fraccion_sin_oclusion: coseno > 0 && nDentro > 0 ? redondear(fraccionSinOclusion(cam.position, muestras, propios), 2) : 0,
+          poligono_px: validos ? pts.map((q) => [r1(q.x), r1(q.y)]) : null,
+          bbox_px: validos ? [r1(Math.min(...xs)), r1(Math.min(...ys)), r1(Math.max(...xs) - Math.min(...xs)), r1(Math.max(...ys) - Math.min(...ys))] : null,
+          ancho_px: validos ? r1(Math.max(Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y), Math.hypot(pts[2].x - pts[3].x, pts[2].y - pts[3].y))) : null,
+        };
+      });
+      return { lado: m.userData.lado, texto: v.placa, centro: vec3(centro), normal: vec3(normal), esquinas: esquinas.map(vec3), camaras: porCam };
+    });
+    return {
+      id: v.id, placa: v.placa, tipo: v.tipo, color: v.color, orientacion: v.orientacion,
+      plazaAsignada: v.plazaAsignada, plazaReal: v.plazaReal,
+      correctamenteEstacionado: v.eval.correcto, motivos: v.eval.motivos,
+      plazasOcupadas: v.eval.plazasOcupadas, plazasTocadas: v.eval.plazasTocadas,
+      posicion: { x: redondear(v.pose.x, 4), y: 0, z: redondear(v.pose.z, 4) },
+      rotacion: { yaw_grados: redondear(v.pose.yaw * R2D, 3), desvio_grados: v.rotacion },
+      desplazamiento: {
+        lateral_m: v.despLateral, longitudinal_m: v.despLongitudinal, rotacion_grados: v.rotacion,
+        caso: v.caso, lado: v.lado, lado_efectivo: v.pose.ladoEfectivo, lateral_total_m: redondear(v.pose.lateralTotal, 4),
+      },
+      margenes: v.eval.margenes,
+      dimensiones_m: { largo: redondear(t.dim.largo), ancho: redondear(t.dim.ancho), alto: redondear(t.dim.alto) },
+      huella: v.eval.huella.map(([x, z]) => [redondear(x, 4), redondear(z, 4)]),
+      placas,
+    };
+  });
+
+  return {
+    formato: 'parqueadero-cctv', version: 1, generado: new Date().toISOString(),
+    convenciones: {
+      unidades: 'metros y grados',
+      mundo: 'X a lo largo de las filas, Y hacia arriba, Z transversal; origen en el centro del pasillo a nivel del piso. Fila A (P1–P6) en z<0, fila B (P7–P12) en z>0.',
+      yaw: 'yaw 0 = frente del vehículo hacia +Z; positivo = antihorario visto desde arriba.',
+      desplazamiento: 'lateral + hacia la plaza siguiente (P1→P2…); longitudinal + hacia el pasillo.',
+      camara: 'Convención three.js/OpenGL: la cámara mira hacia su −Z local con +Y arriba. Matrices en orden column-major. Píxeles con origen arriba-izquierda.',
+      placas: 'Esquinas en orden inferior-izquierda, inferior-derecha, superior-derecha, superior-izquierda vistas de frente a la placa.',
+      correcto: `Plaza real = asignada, sin pisar líneas laterales (tolerancia 2 cm), sin salir de la plaza más de 15 cm (más lo inevitable si el vehículo es más largo que la plaza) y desvío ≤ ${TOL_ROT}°.`,
+      oclusion: 'fraccion_sin_oclusion: rayos desde la cámara al centro y 4 puntos de la placa; 1 = totalmente visible.',
+    },
+    resolucionReferencia: { ancho, alto },
+    iluminacion: ilumActual, colorLineas: $('#selLineas').value, sombras: renderer.shadowMap.enabled, calidadGrafica: calidad,
+    camaras, plazas, vehiculos: vehs,
+    resumen: { vehiculos: vehs.length, correctos: vehs.filter((v) => v.correctamenteEstacionado).length, incorrectos: vehs.filter((v) => !v.correctamenteEstacionado).length },
+  };
+}
+function importarEscenario(json) {
+  if (!json || !Array.isArray(json.vehiculos)) throw new Error('El archivo no contiene una lista «vehiculos».');
+  vaciar();
+  if (Array.isArray(json.camaras)) json.camaras.slice(0, 2).forEach((c, i) => {
+    const a = c.ajustes || c;
+    for (const k of Object.keys(CAM_DEFECTO[i])) if (Number.isFinite(a[k])) ajustesCam[i][k] = a[k];
+    aplicarAjustesCamara(i);
+  });
+  if (CALIDADES[json.calidadGrafica]) aplicarCalidad(json.calidadGrafica);
+  if (ILUM[json.iluminacion]) aplicarIluminacion(json.iluminacion);
+  if (json.colorLineas) aplicarColorLineas(json.colorLineas);
+  if (typeof json.sombras === 'boolean') aplicarSombras(json.sombras);
+  if (json.resolucionReferencia) {
+    const val = `${json.resolucionReferencia.ancho}x${json.resolucionReferencia.alto}`;
+    if ($(`#selRes option[value="${val}"]`)) $('#selRes').value = val;
+  }
+  let omitidos = 0;
+  for (const e of json.vehiculos) {
+    const d = e.desplazamiento || {};
+    const datos = {
+      placa: e.placa, tipo: e.tipo, color: e.color, orientacion: e.orientacion,
+      plazaReal: e.plazaReal, plazaAsignada: e.plazaAsignada ?? e.plazaReal,
+      despLateral: d.lateral_m ?? e.despLateral, despLongitudinal: d.longitudinal_m ?? e.despLongitudinal,
+      rotacion: d.rotacion_grados ?? (typeof e.rotacion === 'number' ? e.rotacion : e.rotacion?.desvio_grados),
+      caso: d.caso ?? e.caso, lado: d.lado ?? e.lado,
+    };
+    if (!plazaPorId(datos.plazaReal) || vehiculos.some((v) => v.plazaReal === datos.plazaReal)) { omitidos++; continue; }
+    crearVehiculo(datos, { animar: false });
+  }
+  sincronizarSlidersCam();
+  return { cargados: vehiculos.length, omitidos };
+}
+
+// ============================================================================
+// Interfaz
+// ============================================================================
+const fPlaza = $('#fPlaza'), fAsignada = $('#fAsignada'), fDistinta = $('#fDistinta'), fPlaca = $('#fPlaca');
+const fTipo = $('#fTipo'), fOrient = $('#fOrient'), fColor = $('#fColor'), fCaso = $('#fCaso'), fLado = $('#fLado'), fAnimar = $('#fAnimar');
+const btnInvocar = $('#btnInvocar'), btnCancelar = $('#btnCancelar');
+let editando = null, copiaEdicion = null;
+
+function crearRango(cont, cfg, alCambiar = null) {
+  const w = document.createElement('div'); w.className = 'rango';
+  w.innerHTML = `<label for="${cfg.id}"><span>${cfg.label}</span><span>${cfg.ayuda || ''}</span></label>
+    <input type="range" id="${cfg.id}" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}" value="${cfg.valor}">
+    <input type="number" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}" value="${cfg.valor}" aria-label="${cfg.label}">`;
+  cont.appendChild(w);
+  const [r, n] = w.querySelectorAll('input');
+  r.addEventListener('input', () => { n.value = r.value; alCambiar?.(parseFloat(r.value)); });
+  n.addEventListener('change', () => {
+    let v = parseFloat(n.value); if (!Number.isFinite(v)) v = parseFloat(r.value);
+    v = clamp(v, cfg.min, cfg.max); n.value = v; r.value = v; alCambiar?.(v);
+  });
+  return { get: () => parseFloat(r.value), set: (v) => { r.value = v; n.value = v; } };
+}
+const contMal = $('#rangosMal');
+const rLat = crearRango(contMal, { id: 'fLat', label: 'Desplazamiento lateral (m)', ayuda: '+ hacia la plaza siguiente', min: -1.5, max: 1.5, step: 0.01, valor: 0 });
+const rLon = crearRango(contMal, { id: 'fLon', label: 'Desplazamiento longitudinal (m)', ayuda: '+ hacia el pasillo', min: -0.6, max: 2.0, step: 0.01, valor: 0 });
+const rRot = crearRango(contMal, { id: 'fRot', label: 'Rotación (°)', ayuda: '+ antihorario visto desde arriba', min: -45, max: 45, step: 0.5, valor: 0 });
+contMal.prepend(...Array.from(contMal.querySelectorAll('.rango')));
+
+// Paleta de colores
+const paleta = $('#paleta');
+for (const [nombre, hex] of PALETA) {
+  const b = document.createElement('button'); b.type = 'button'; b.title = nombre; b.style.background = hex; b.dataset.hex = hex;
+  b.addEventListener('click', () => { fColor.value = hex; actualizarColorUI(); alEditarFormulario(); });
+  paleta.appendChild(b);
+}
+function actualizarColorUI() {
+  const hex = fColor.value.toLowerCase(), m = PALETA.find(([, h]) => h === hex);
+  $('#nomColor').textContent = m ? m[0] : hex;
+  $$('#paleta button').forEach((b) => b.classList.toggle('on', b.dataset.hex === hex));
+}
+fColor.addEventListener('input', actualizarColorUI);
+
+function mapaOcupacion(excepto = null) {
+  const ocup = {}, inv = {};
+  for (const v of vehiculos) {
+    if (v === excepto) continue;
+    ocup[v.plazaReal] = v;
+    for (const o of v.eval.plazasTocadas) if (o.plaza !== v.plazaReal) (inv[o.plaza] ||= []).push(v);
+  }
+  return { ocup, inv };
+}
+function opcionesPlazas(sel, { deshabilitarOcupadas, excepto, valor }) {
+  const { ocup, inv } = mapaOcupacion(excepto);
+  let html = '';
+  for (const fila of ['A', 'B']) {
+    html += `<optgroup label="Fila ${fila}">`;
+    for (const p of PLAZAS.filter((q) => q.fila === fila)) {
+      const o = ocup[p.id];
+      const etq = o ? `${p.id} · ocupada (${o.placa})` : inv[p.id] ? `${p.id} · libre, invadida por ${inv[p.id].map((v) => v.placa).join(', ')}` : `${p.id} · libre`;
+      html += `<option value="${p.id}"${o && deshabilitarOcupadas ? ' disabled' : ''}>${escaparHTML(etq)}</option>`;
+    }
+    html += '</optgroup>';
+  }
+  sel.innerHTML = html;
+  const opt = valor && sel.querySelector(`option[value="${valor}"]`);
+  if (opt && !opt.disabled) sel.value = valor;
+  else { const libre = sel.querySelector('option:not([disabled])'); sel.value = libre ? libre.value : ''; }
+}
+function refrescarSelects() {
+  opcionesPlazas(fPlaza, { deshabilitarOcupadas: true, excepto: editando, valor: fPlaza.value || (editando && editando.plazaReal) });
+  opcionesPlazas(fAsignada, { deshabilitarOcupadas: false, excepto: editando, valor: fAsignada.value });
+  const lleno = !editando && !fPlaza.value;
+  btnInvocar.disabled = lleno;
+  btnInvocar.textContent = editando ? 'Guardar cambios' : lleno ? 'Parqueadero lleno' : 'Invocar vehículo';
+}
+function validarPlaca() {
+  const el = $('#avisoPlaca'), p = fPlaca.value.trim().toUpperCase();
+  const dup = vehiculos.some((v) => v.placa === p && v !== editando);
+  if (!p) { el.className = 'aviso'; el.textContent = 'Vacía: se generará una placa aleatoria.'; }
+  else if (dup) { el.className = 'aviso wa'; el.textContent = 'Ya hay un vehículo con esta placa (se permite para pruebas).'; }
+  else if (RE_PLACA.test(p)) { el.className = 'aviso ok'; el.textContent = 'Formato ecuatoriano válido (ABC-1234).'; }
+  else if (RE_PLACA_ANT.test(p)) { el.className = 'aviso ok'; el.textContent = 'Formato ecuatoriano antiguo (ABC-123).'; }
+  else { el.className = 'aviso wa'; el.textContent = 'No sigue el formato ABC-1234; se usará tal cual.'; }
+}
+fPlaca.addEventListener('input', () => {
+  const pos = fPlaca.selectionStart; fPlaca.value = fPlaca.value.toUpperCase(); fPlaca.setSelectionRange(pos, pos); validarPlaca();
+});
+$('#btnPlacaAl').addEventListener('click', () => { fPlaca.value = placaAleatoria(); validarPlaca(); alEditarFormulario(); });
+fDistinta.addEventListener('change', () => {
+  $('#grpAsignada').hidden = !fDistinta.checked;
+  if (fDistinta.checked && fAsignada.value === fPlaza.value) {
+    const otra = PLAZAS.find((p) => p.id !== fPlaza.value); fAsignada.value = otra.id;
+  }
+});
+$('#btnBienEst').addEventListener('click', () => { rLat.set(0); rLon.set(0); rRot.set(0); fCaso.value = 'ninguno'; alEditarFormulario(); });
+
+function leerFormulario() {
+  const plazaReal = fPlaza.value;
+  return {
+    placa: fPlaca.value.trim().toUpperCase(), tipo: fTipo.value, color: fColor.value, orientacion: fOrient.value,
+    plazaReal, plazaAsignada: fDistinta.checked ? fAsignada.value : plazaReal,
+    despLateral: rLat.get(), despLongitudinal: rLon.get(), rotacion: rRot.get(), caso: fCaso.value, lado: fLado.value,
+  };
+}
+function llenarFormulario(d) {
+  fPlaca.value = d.placa; fTipo.value = d.tipo; fColor.value = d.color; fOrient.value = d.orientacion;
+  refrescarSelects();
+  fPlaza.value = d.plazaReal;
+  fDistinta.checked = d.plazaAsignada !== d.plazaReal; $('#grpAsignada').hidden = !fDistinta.checked; fAsignada.value = d.plazaAsignada;
+  rLat.set(d.despLateral); rLon.set(d.despLongitudinal); rRot.set(d.rotacion); fCaso.value = d.caso; fLado.value = d.lado;
+  if (d.despLateral || d.despLongitudinal || d.rotacion || d.caso !== 'ninguno') $('#detMal').open = true;
+  actualizarColorUI(); validarPlaca();
+}
+let aplicacionPendiente = false;
+function alEditarFormulario() {
+  if (!editando || aplicacionPendiente) return;
+  aplicacionPendiente = true;
+  requestAnimationFrame(() => { aplicacionPendiente = false; if (editando) actualizarVehiculo(editando, leerFormulario()); });
+}
+$('#formVeh').addEventListener('input', alEditarFormulario);
+$('#formVeh').addEventListener('change', alEditarFormulario);
+
+function iniciarEdicion(v) {
+  if (editando) terminarEdicion(true, true);
+  finalizarAnimacionesSiHay();
+  editando = v; copiaEdicion = datosDe(v);
+  llenarFormulario(v);
+  $('#tituloInvocar').textContent = `Editando ${v.placa}`;
+  btnCancelar.hidden = false; $('#secInvocar').open = true;
+  $('#secInvocar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  programarUI();
+}
+function terminarEdicion(guardar, silencioso = false) {
+  const v = editando; if (!v) return;
+  editando = null;
+  if (!guardar && vehiculos.includes(v)) actualizarVehiculo(v, copiaEdicion);
+  copiaEdicion = null;
+  $('#tituloInvocar').textContent = 'Invocar vehículo'; btnCancelar.hidden = true;
+  fPlaca.value = placaAleatoria(); fDistinta.checked = false; $('#grpAsignada').hidden = true;
+  rLat.set(0); rLon.set(0); rRot.set(0); fCaso.value = 'ninguno';
+  validarPlaca(); programarUI();
+  if (!silencioso && guardar) aviso(`Cambios guardados en ${v.placa}`, 'ok');
+}
+btnCancelar.addEventListener('click', () => terminarEdicion(false));
+btnInvocar.addEventListener('click', () => {
+  if (editando) { terminarEdicion(true); return; }
+  const d = leerFormulario();
+  if (!d.plazaReal) { aviso('No hay plazas libres.', 'ko'); return; }
+  if (vehiculos.some((v) => v.plazaReal === d.plazaReal)) { aviso(`${d.plazaReal} ya está ocupada.`, 'ko'); return; }
+  const v = crearVehiculo(d, { animar: fAnimar.checked });
+  const sol = solapamientos(v);
+  aviso(`${v.placa} invocado en ${v.plazaReal}` + (v.eval.correcto ? '' : ' · mal estacionado') + (sol.length ? ` · se superpone con ${sol.map((o) => o.placa).join(', ')}` : ''),
+    sol.length ? 'wa' : v.eval.correcto ? 'ok' : 'wa');
+  fPlaca.value = placaAleatoria(); validarPlaca();
+  fPlaza.value = ''; programarUI();
+});
+
+// Lista de vehículos
+function renderLista() {
+  const lista = $('#listaVeh');
+  $('#cuentaVeh').textContent = `${vehiculos.length} / 12`;
+  if (!vehiculos.length) { lista.innerHTML = '<div class="vacio">No hay vehículos. Invoca uno o usa «Llenar aleatoriamente».</div>'; return; }
+  const { ocup } = mapaOcupacion();
+  lista.innerHTML = vehiculos.map((v) => {
+    const ok = v.eval.correcto;
+    const libres = PLAZAS.filter((p) => !ocup[p.id]).map((p) => `<option value="${p.id}">${p.id}</option>`).join('');
+    return `<div class="veh${ok ? '' : ' mal'}${editando === v ? ' editando' : ''}" data-id="${v.id}">
+      <div class="top"><span class="chip" style="background:${v.color}"></span><span class="placa">${escaparHTML(v.placa)}</span>
+        <span class="meta">${TIPOS[v.tipo].nombre} · ${v.orientacion === 'frente' ? 'de frente' : 'de reversa'}${v.anim ? ' · entrando…' : ''}</span></div>
+      <div class="meta">Asignada <b>${v.plazaAsignada}</b> · Real <b>${v.plazaReal}</b>${v.eval.plazasOcupadas.length > 1 ? ` · ocupa <b>${v.eval.plazasOcupadas.join(' + ')}</b>` : ''}</div>
+      <div class="est ${ok ? 'ok' : 'ko'}">${ok ? '✔ Correctamente estacionado' : '✖ ' + v.eval.motivos.map(escaparHTML).join(' · ')}</div>
+      <div class="acc"><button data-acc="editar">Editar</button>
+        <select data-acc="mover" title="Cambia la plaza real; la asignada se conserva"${libres ? '' : ' disabled'}><option value="">Mover a…</option>${libres}</select>
+        <button data-acc="eliminar" class="peligro">Eliminar</button></div>
+    </div>`;
+  }).join('');
+}
+$('#listaVeh').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-acc]'); if (!b) return;
+  const v = vehiculos.find((x) => x.id === b.closest('.veh').dataset.id); if (!v) return;
+  if (b.dataset.acc === 'editar') iniciarEdicion(v);
+  else if (b.dataset.acc === 'eliminar') { eliminarVehiculo(v); aviso(`${v.placa} eliminado`); }
+});
+$('#listaVeh').addEventListener('change', (e) => {
+  const s = e.target.closest('select[data-acc="mover"]'); if (!s || !s.value) return;
+  const v = vehiculos.find((x) => x.id === s.closest('.veh').dataset.id); if (!v) return;
+  if (editando === v) terminarEdicion(true, true);
+  actualizarVehiculo(v, { plazaReal: s.value }, { animar: fAnimar.checked });
+  aviso(`${v.placa} movido a ${v.plazaReal}` + (v.eval.correcto ? '' : ` (asignada: ${v.plazaAsignada})`), v.eval.correcto ? 'ok' : 'wa');
+});
+let confirmaVaciar = 0;
+$('#btnVaciar').addEventListener('click', (e) => {
+  if (!vehiculos.length) return;
+  if (Date.now() - confirmaVaciar > 3000) { confirmaVaciar = Date.now(); e.target.textContent = '¿Seguro? Clic otra vez'; setTimeout(() => { e.target.textContent = 'Vaciar parqueadero'; }, 3000); return; }
+  confirmaVaciar = 0; e.target.textContent = 'Vaciar parqueadero'; vaciar(); aviso('Parqueadero vacío');
+});
+function llenarAleatorio() {
+  const { ocup, inv } = mapaOcupacion();
+  let n = 0;
+  for (const p of PLAZAS) {
+    if (ocup[p.id] || inv[p.id] || Math.random() < 0.12) continue;
+    const r = Math.random();
+    const d = {
+      plazaReal: p.id, plazaAsignada: p.id, placa: placaAleatoria(), tipo: r < 0.5 ? 'sedan' : r < 0.8 ? 'suv' : 'camioneta',
+      color: PALETA[Math.floor(Math.random() * PALETA.length)][1], orientacion: Math.random() < 0.7 ? 'frente' : 'reversa',
+      despLateral: redondear((Math.random() - 0.5) * 0.16, 2), despLongitudinal: redondear((Math.random() - 0.5) * 0.16, 2), rotacion: redondear((Math.random() - 0.5) * 3, 1),
+    };
+    if (Math.random() < 0.3) {   // ~30 % mal estacionados
+      const e = Math.floor(Math.random() * 4), sg = Math.random() < 0.5 ? -1 : 1;
+      if (e === 0) d.despLateral = redondear(sg * (0.35 + Math.random() * 0.3), 2);
+      else if (e === 1) d.despLongitudinal = redondear(0.35 + Math.random() * 0.6, 2);
+      else if (e === 2) d.rotacion = redondear(sg * (7 + Math.random() * 8), 1);
+      else d.plazaAsignada = azar(PLAZAS.filter((q) => q !== p)).id;
+    }
+    const v = crearVehiculo(d, { animar: false });
+    if (solapamientos(v).length) { actualizarVehiculo(v, { despLateral: 0, despLongitudinal: 0, rotacion: 0 }); if (solapamientos(v).length) { eliminarVehiculo(v); continue; } }
+    n++;
+  }
+  return n;
+}
+$('#btnAleatorio').addEventListener('click', () => {
+  const n = llenarAleatorio();
+  aviso(n ? `${n} vehículos agregados (algunos mal estacionados a propósito)` : 'No quedan plazas libres', n ? 'ok' : 'wa');
+});
+
+let uiPendiente = false;
+function programarUI() {
+  if (uiPendiente) return; uiPendiente = true;
+  requestAnimationFrame(() => { uiPendiente = false; refrescarSelects(); renderLista(); });
+}
+
+// Vistas
+function setModo(m) {
+  if (!['dividida', 'cam1', 'cam2', 'libre'].includes(m)) return;
+  modo = m; controles.enabled = m === 'libre';
+  $$('[data-modo]').forEach((b) => b.classList.toggle('on', b.dataset.modo === m));
+  pedirRender(); ultOverlay = 0;
+}
+$$('[data-modo]').forEach((b) => b.addEventListener('click', () => setModo(b.dataset.modo)));
+$('#chkOverlay').addEventListener('change', (e) => { overlayActivo = e.target.checked; ultOverlay = 0; });
+$$('#segIlum button').forEach((b) => b.addEventListener('click', () => aplicarIluminacion(b.dataset.ilum)));
+$('#chkSombras').addEventListener('change', (e) => aplicarSombras(e.target.checked));
+$('#selCalidad').addEventListener('change', (e) => aplicarCalidad(e.target.value));
+$('#selLineas').addEventListener('change', (e) => aplicarColorLineas(e.target.value));
+
+// Panel plegable
+function alternarPanel() { document.body.classList.toggle('sin-panel'); }
+$('#btnOcultar').addEventListener('click', alternarPanel);
+$('#btnMostrar').addEventListener('click', alternarPanel);
+let temporizadorRaton = 0;
+vista.addEventListener('mousemove', () => {
+  document.body.classList.add('raton'); clearTimeout(temporizadorRaton);
+  temporizadorRaton = setTimeout(() => document.body.classList.remove('raton'), 2000);
+});
+window.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (t && (t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && !['checkbox', 'range', 'radio', 'button', 'color'].includes(t.type)))) {
+    if (e.key === 'Escape') t.blur();
+    return;
+  }
+  const mapa = { 1: 'dividida', 2: 'cam1', 3: 'cam2', 4: 'libre' };
+  if (mapa[e.key]) { setModo(mapa[e.key]); e.preventDefault(); }
+  else if (e.key === 'h' || e.key === 'H') alternarPanel();
+  else if (e.key === 'Escape' && editando) terminarEdicion(false);
+});
+
+// Ajustes de cámara
+const CAMPOS_CAM = [
+  { k: 'x', label: 'Posición X (m)', min: -MURO_X, max: MURO_X, step: 0.05 },
+  { k: 'y', label: 'Altura (m)', min: 0.5, max: ALTO_TECHO - 0.05, step: 0.01 },
+  { k: 'z', label: 'Posición Z (m)', min: -MURO_Z, max: MURO_Z, step: 0.05 },
+  { k: 'pan', label: 'Paneo (°)', min: -180, max: 180, step: 0.5 },
+  { k: 'tilt', label: 'Inclinación (°)', ayuda: '− hacia abajo', min: -89, max: 30, step: 0.5 },
+  { k: 'roll', label: 'Giro (°)', min: -30, max: 30, step: 0.5 },
+  { k: 'fov', label: 'Campo de visión vertical (°)', min: 15, max: 100, step: 0.5 },
+];
+let camSel = 0;
+const controlesCam = {};
+for (const c of CAMPOS_CAM) {
+  controlesCam[c.k] = crearRango($('#slidersCam'), { ...c, id: 'cam_' + c.k, valor: ajustesCam[0][c.k] }, (v) => {
+    ajustesCam[camSel][c.k] = v; aplicarAjustesCamara(camSel); actualizarInfoCam();
+  });
+}
+function actualizarInfoCam() {
+  const a = ajustesCam[camSel], [w, h] = resolucionRef();
+  const hf = 2 * Math.atan(Math.tan((a.fov * D2R) / 2) * RELACION) * R2D, f = h / 2 / Math.tan((a.fov * D2R) / 2);
+  const d = Math.hypot(a.x, a.y - 0.55, a.z - CAM_INFO[camSel].fila * (Z_FRENTE + 0.3));
+  $('#infoCam').textContent = `FOV horizontal ≈ ${hf.toFixed(1)}° · focal ≈ ${f.toFixed(0)} px a ${w}×${h}. Una placa de 40 cm en el centro de la fila (a ${d.toFixed(1)} m) mide ≈ ${Math.round((f * 0.4) / d)} px de ancho.`;
+}
+function sincronizarSlidersCam() {
+  for (const c of CAMPOS_CAM) controlesCam[c.k].set(ajustesCam[camSel][c.k]);
+  $$('#segCam button').forEach((b) => b.classList.toggle('on', Number(b.dataset.cam) === camSel));
+  actualizarInfoCam();
+}
+$$('#segCam button').forEach((b) => b.addEventListener('click', () => { camSel = Number(b.dataset.cam); sincronizarSlidersCam(); }));
+$('#btnResetCam').addEventListener('click', () => { ajustesCam[camSel] = { ...CAM_DEFECTO[camSel] }; aplicarAjustesCamara(camSel); sincronizarSlidersCam(); });
+$('#btnResetCams').addEventListener('click', () => { ajustesCam = CAM_DEFECTO.map((a) => ({ ...a })); cctv.forEach((_, i) => aplicarAjustesCamara(i)); sincronizarSlidersCam(); });
+$('#selRes').addEventListener('change', actualizarInfoCam);
+
+// Exportar / importar / capturar
+$('#btnExportar').addEventListener('click', () => {
+  const estado = estadoVerdadTerreno();
+  descargar(new Blob([JSON.stringify(estado, null, 2)], { type: 'application/json' }), `parqueadero_estado_${sello()}.json`);
+  aviso(`Estado exportado: ${estado.resumen.vehiculos} vehículos (${estado.resumen.incorrectos} mal estacionados)`, 'ok');
+});
+$('#btnImportar').addEventListener('click', () => $('#archivo').click());
+$('#archivo').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const r = importarEscenario(JSON.parse(await f.text()));
+    aviso(`Escenario importado: ${r.cargados} vehículos` + (r.omitidos ? ` (${r.omitidos} omitidos por plaza inválida o repetida)` : ''), r.omitidos ? 'wa' : 'ok');
+  } catch (err) { aviso('No se pudo importar: ' + err.message, 'ko'); }
+});
+$('#btnCapturar').addEventListener('click', () => {
+  const [w, h] = resolucionRef(), s = sello();
+  cctv.forEach((_, i) => capturarCamara(i, w, h).toBlob((b) => descargar(b, `${CAM_INFO[i].id.toLowerCase()}_${w}x${h}_${s}.png`), 'image/png'));
+  aviso(`Capturas de ${w}×${h} generadas`, 'ok');
+});
+
+// ============================================================================
+// Bucle principal
+// ============================================================================
+const reloj = new THREE.Clock();
+let ultOverlay = 0, cuadros = 0, tFps = performance.now(), habiaAnimacion = false;
+function bucle() {
+  requestAnimationFrame(bucle);
+  const dt = Math.min(reloj.getDelta(), 0.1);
+  if (actualizarAnimaciones(dt)) marcarSombras();
+  const hayAnimacion = vehiculos.some((v) => v.anim);
+  if (habiaAnimacion && !hayAnimacion) programarUI();   // quita el «entrando…» de la lista
+  habiaAnimacion = hayAnimacion;
+  if (modo === 'libre') controles.update();
+  if (necesitaRender) { necesitaRender = false; renderizar(); }
+  const ahora = performance.now();
+  if (ahora - ultOverlay > 33) { ultOverlay = ahora; dibujarOverlay(); }
+  cuadros++;
+  if (ahora - tFps > 500) { $('#fps').textContent = `${Math.round((cuadros * 1000) / (ahora - tFps))} fps`; cuadros = 0; tFps = ahora; }
+}
+
+// ============================================================================
+// API para automatización (p. ej. Playwright: page.evaluate(() => parqueadero.estado()))
+// ============================================================================
+window.parqueadero = {
+  version: 1,
+  vista: (m) => setModo(m),                                        // 'dividida' | 'cam1' | 'cam2' | 'libre'
+  iluminacion: (c) => aplicarIluminacion(c),                       // 'normal' | 'baja' | 'contraluz'
+  calidad: (q) => aplicarCalidad(q),                               // 'alta' | 'media' | 'baja'
+  overlay: (on) => { overlayActivo = !!on; $('#chkOverlay').checked = overlayActivo; ultOverlay = 0; },
+  invocar: (datos, opciones = {}) => crearVehiculo(datos, { animar: false, ...opciones }).id,
+  editar: (id, cambios) => { const v = vehiculos.find((x) => x.id === id || x.placa === id); if (v) actualizarVehiculo(v, cambios); return !!v; },
+  eliminar: (id) => { const v = vehiculos.find((x) => x.id === id || x.placa === id); if (v) eliminarVehiculo(v); return !!v; },
+  vaciar: () => vaciar(),
+  llenarAleatorio: () => llenarAleatorio(),
+  estado: () => estadoVerdadTerreno(),
+  importar: (json) => importarEscenario(typeof json === 'string' ? JSON.parse(json) : json),
+  capturar: (cam = 0, { ancho = 1920, alto = 1080, overlay = overlayActivo } = {}) => capturarCamara(cam, ancho, alto, overlay).toDataURL('image/png'),
+  camara: (i, ajustes) => { if (ajustes) { Object.assign(ajustesCam[i], ajustes); aplicarAjustesCamara(i); sincronizarSlidersCam(); } return { ...ajustesCam[i] }; },
+  placaAleatoria: () => placaAleatoria(),
+  camaraLibre: (posicion, objetivo) => { camLibre.position.set(...posicion); controles.target.set(...objetivo); controles.update(); setModo('libre'); },
+};
+
+// Arranque
+fPlaca.value = placaAleatoria();
+actualizarColorUI(); validarPlaca();
+setModo('dividida');
+aplicarCalidad('alta');
+aplicarIluminacion('normal');
+sincronizarSlidersCam();
+refrescarSelects(); renderLista();
+redimensionar();
+bucle();
+window.__parqueaderoListo = true;
+</script>
+</body>
+</html>

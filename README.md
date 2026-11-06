@@ -21,7 +21,7 @@ Para detener todo, cierra las ventanas "Zentry - ...".
 
 ## Cámaras
 
-- **Simulador:** si `parqueadero-cctv.html` está en `..\Entorno virtual\`, al lado de la carpeta del proyecto (o en la ruta de la variable `ZENTRY_SIMULADOR`), el script conecta sus dos cámaras virtuales y abre el simulador en otra pestaña. Esa pestaña tiene que quedar abierta.
+- **Simulador:** viene en la carpeta `simulador/` del proyecto (también se acepta en `..\Entorno virtual\` o en la ruta de la variable `ZENTRY_SIMULADOR`). El script conecta sus dos cámaras virtuales y abre el simulador en otra pestaña. Esa pestaña tiene que quedar abierta.
 - **Celular con IP Webcam:** en la app pulsa *Iniciar servidor*. Luego entra en http://127.0.0.1:8000/admin/ → Cámaras → Agregar, elige el tipo "Cámara IP (IP Webcam)" y en *Fuente* pon la dirección que muestra la app (por ejemplo `http://192.168.1.8:8080`). El agente la toma solo, sin reiniciar nada.
 
 ## En Linux o macOS

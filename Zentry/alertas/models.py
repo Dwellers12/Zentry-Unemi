@@ -25,6 +25,8 @@ class Alerta(models.Model):
     NO_REGISTRADA = 'no_registrada'
     NO_CONCLUYENTE = 'no_concluyente'
     CORREGIDA = 'corregida'
+    # Solo estas avisan al guardia; las «No concluyente» (placa ilegible) se revisan en la web.
+    RESULTADOS_CON_AVISO = (DISCREPANCIA, NO_REGISTRADA)
     RESULTADOS = [
         (DISCREPANCIA, 'Discrepancia'),
         (NO_REGISTRADA, 'Placa no registrada'),

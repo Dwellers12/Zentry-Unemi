@@ -128,7 +128,7 @@ def _crear(plaza, estado, lectura, imagen, motivo):
 
 def _notificar(alerta_id):
     alerta = Alerta.objects.filter(pk=alerta_id).first()
-    if alerta is None:
+    if alerta is None or alerta.resultado not in Alerta.RESULTADOS_CON_AVISO:
         return
     try:
         puertos.notificacion().notificar(alerta)

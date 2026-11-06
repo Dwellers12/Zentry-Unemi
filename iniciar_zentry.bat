@@ -30,14 +30,13 @@ echo.
 if errorlevel 1 goto error
 copy /y "requirements.txt" ".venv\requisitos_instalados.txt" >nul
 
-rem 3) Base de datos: migraciones, datos de demostracion si es nueva y token del agente.
+rem 3) Base de datos: migraciones, datos de demostracion si esta vacia y token del agente.
+rem    Si existe el archivo .env con la base de AWS (RDS), se usa esa; si no, SQLite.
 :base
-set "NUEVA=0"
-if not exist "Zentry\db.sqlite3" set "NUEVA=1"
 echo Preparando la base de datos...
 ".venv\Scripts\python.exe" Zentry\manage.py migrate --noinput -v 0
 if errorlevel 1 goto error
-if "%NUEVA%"=="1" ".venv\Scripts\python.exe" Zentry\manage.py datos_demo
+".venv\Scripts\python.exe" Zentry\manage.py datos_demo --si-vacia
 if not exist ".agente_token" ".venv\Scripts\python.exe" Zentry\manage.py crear_agente >nul
 
 rem 4) Servidor web en su propia ventana; esperar a que responda (hasta 60 s).
@@ -52,11 +51,12 @@ if %INTENTOS% geq 60 goto web_no_arranco
 ping -n 2 127.0.0.1 >nul
 goto esperar_web
 
-rem 5) Camaras: el simulador si esta al lado del proyecto; si no, el agente para las camaras de /admin/.
+rem 5) Camaras: el simulador (carpeta simulador\); si no esta, el agente para las camaras de /admin/.
 :camaras
 if defined ZENTRY_SIMULADOR goto con_simulador
+if exist "simulador\parqueadero-cctv.html" goto con_simulador
 if exist "..\Entorno virtual\parqueadero-cctv.html" goto con_simulador
-echo No encontre el simulador en ..\Entorno virtual\: arranco el agente para las camaras de /admin/ (IP Webcam).
+echo No encontre el simulador en simulador\: arranco el agente para las camaras de /admin/ (IP Webcam).
 start "Zentry - Agente" cmd /k .venv\Scripts\python.exe -m agente
 goto abrir
 :con_simulador

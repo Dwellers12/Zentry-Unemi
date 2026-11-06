@@ -3,7 +3,7 @@ Conecta las cámaras virtuales del simulador con Zentry.
 
     python camaras_virtuales.py
 
-  1. Sirve el simulador (../Entorno virtual/parqueadero-cctv.html) en
+  1. Sirve el simulador (simulador/parqueadero-cctv.html, dentro del proyecto) en
      http://127.0.0.1:8765/ con un conector que envía las imágenes de CAM 01 y
      CAM 02, y lo abre en el navegador. El archivo del simulador no se modifica.
   2. Registra las dos cámaras en Zentry como «cámaras virtuales» con sus plazas
@@ -44,12 +44,14 @@ from agente.cliente import ClienteZentry, Rechazada, SinConexion  # noqa: E402
 
 log = logging.getLogger('zentry.puente')
 
-SIMULADOR_DEFECTO = RAIZ.parent / 'Entorno virtual' / 'parqueadero-cctv.html'
+SIMULADOR_DEFECTO = RAIZ / 'simulador' / 'parqueadero-cctv.html'
+# Ubicación anterior, al lado del proyecto: se sigue aceptando.
+SIMULADOR_AL_LADO = RAIZ.parent / 'Entorno virtual' / 'parqueadero-cctv.html'
 REANUNCIAR_S = 60
 
 
 def buscar_simulador(ruta=None):
-    candidatos = [ruta, os.environ.get('ZENTRY_SIMULADOR'), SIMULADOR_DEFECTO]
+    candidatos = [ruta, os.environ.get('ZENTRY_SIMULADOR'), SIMULADOR_DEFECTO, SIMULADOR_AL_LADO]
     for candidato in candidatos:
         if candidato and Path(candidato).expanduser().is_file():
             return Path(candidato).expanduser().resolve()

@@ -1,6 +1,7 @@
 """Pruebas de M3 · Alertas: ciclo de vida, permisos por rol, reportes y vista en vivo."""
 from datetime import timedelta
 from io import StringIO
+from unittest import mock
 
 from django.core.management import call_command
 from django.urls import reverse
@@ -8,7 +9,7 @@ from django.utils import timezone
 
 from Zentry.pruebas import CLAVE, PruebaZentry, det, jpeg
 
-from . import servicios
+from . import adaptadores, servicios
 from .models import Alerta, EventoAlerta
 
 FETCH = {'HTTP_X_REQUESTED_WITH': 'fetch'}
@@ -129,3 +130,58 @@ class PermisosTest(PruebaZentry):
         self.assertEqual(respuesta.status_code, 200)
         self.assertIn('text/csv', respuesta['Content-Type'])
         self.assertIn('XYZ-1234', respuesta.content.decode('utf-8-sig'))
+
+
+class ClienteSNSFalso:
+    """Hace de Amazon SNS en las pruebas: guarda los SMS en vez de enviarlos."""
+
+    def __init__(self, falla=()):
+        self.enviados, self.falla = [], set(falla)
+
+    def publish(self, PhoneNumber, Message, MessageAttributes):  # noqa: N803  (nombres de boto3)
+        if PhoneNumber in self.falla:
+            raise RuntimeError('celular sin verificar')
+        self.enviados.append((PhoneNumber, Message))
+
+
+class AvisoSMSTest(PruebaZentry):
+    """M3 · aviso por SMS al guardia (sin enviar nada de verdad)."""
+
+    def test_celular_en_formato_internacional(self):
+        for numero in ('0991234567', '+593991234567', '593 99 123 4567', '099-123-4567'):
+            self.assertEqual(adaptadores.numero_internacional(numero), '+593991234567')
+        for malo in ('0291234567', '12345', '+5939912345678'):
+            with self.assertRaises(ValueError):
+                adaptadores.numero_internacional(malo)
+
+    def test_el_aviso_cabe_en_un_solo_sms(self):
+        alerta = Alerta(plaza_nombre='Sótano · Ñ1', placa='GBP-3579', resultado=Alerta.DISCREPANCIA,
+                        creada_en=timezone.now())
+        texto = adaptadores.texto_sms(alerta)
+        self.assertTrue(texto.isascii())          # sin tildes ni «·»: si no, cuenta como 2 SMS
+        self.assertLessEqual(len(texto), 160)
+        self.assertIn('Sotano', texto)
+        self.assertIn('GBP-3579', texto)
+
+    def test_envia_a_cada_celular_aunque_uno_falle(self):
+        cliente = ClienteSNSFalso(falla={'+593987654321'})
+        sms = adaptadores.NotificacionSMS(cliente=cliente, destinos=['0987654321', '0991234567'])
+        alerta = Alerta.objects.create(plaza_nombre='P2', placa='GBP-3579', resultado=Alerta.DISCREPANCIA)
+        with self.assertLogs('zentry.alertas', 'ERROR'):
+            self.assertEqual(sms.notificar(alerta), 1)
+        self.assertEqual([numero for numero, _ in cliente.enviados], ['+593991234567'])
+
+    def test_sin_celulares_no_arranca(self):
+        with self.assertRaises(ValueError):
+            adaptadores.NotificacionSMS(cliente=ClienteSNSFalso(), destinos=[''])
+
+    def test_solo_las_alertas_graves_avisan(self):
+        avisadas = []
+        aviso = mock.Mock(notificar=avisadas.append)
+        with mock.patch('alertas.puertos.notificacion', return_value=aviso), \
+                self.captureOnCommitCallbacks(execute=True):
+            self.capturar_varias(2, det('P2', 'GBP-3579'))                # discrepancia
+            self.capturar_varias(4, det('P3', 'XYZ-1234', confianza=40))   # no concluyente
+        self.assertEqual(sorted(Alerta.objects.values_list('resultado', flat=True)),
+                         [Alerta.DISCREPANCIA, Alerta.NO_CONCLUYENTE])
+        self.assertEqual([a.resultado for a in avisadas], [Alerta.DISCREPANCIA])

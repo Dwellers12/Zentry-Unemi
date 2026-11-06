@@ -3,6 +3,7 @@ Carga datos de demostración coherentes con las dos imágenes de ejemplo (4K) de
 
     python manage.py datos_demo              # solo si la base está vacía
     python manage.py datos_demo --reiniciar  # borra residentes, cámaras, alertas... y vuelve a cargar
+    python manage.py datos_demo --si-vacia   # como el primero, pero sin error si ya hay datos
 
 Crea:
   - Usuarios admin / Zentry2026 (Administrador) y seguridad / Zentry2026 (Personal de seguridad).
@@ -99,10 +100,14 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--reiniciar', action='store_true',
                             help='Borra los datos del parqueadero antes de cargar la demostración.')
+        parser.add_argument('--si-vacia', action='store_true',
+                            help='Si ya hay datos no hace nada (lo usa iniciar_zentry.bat).')
 
-    def handle(self, *args, reiniciar=False, **options):
+    def handle(self, *args, reiniciar=False, si_vacia=False, **options):
         hay_datos = Residente.objects.exists() or Camara.objects.exists() or Alerta.objects.exists()
         if hay_datos and not reiniciar:
+            if si_vacia:
+                return
             raise CommandError('Ya hay datos en la base. Usa --reiniciar para borrarlos y cargar la demostración.')
         if reiniciar:
             self._borrar()

@@ -18,6 +18,30 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 RAIZ_PROYECTO = BASE_DIR.parent
 
 
+def _cargar_env(ruta):
+    """Lee líneas VARIABLE=valor de un archivo .env (sin dependencias extra).
+
+    Las variables que ya existen en el sistema tienen prioridad: así se puede
+    probar con SQLite poniendo ZENTRY_DB_ENGINE=sqlite aunque el .env diga otra cosa.
+    """
+    if not ruta.is_file():
+        return
+    for linea in ruta.read_text(encoding='utf-8').splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith('#') or '=' not in linea:
+            continue
+        nombre, valor = linea.split('=', 1)
+        valor = valor.strip()
+        if len(valor) >= 2 and valor[0] == valor[-1] and valor[0] in '"\'':
+            valor = valor[1:-1]
+        os.environ.setdefault(nombre.strip(), valor)
+
+
+# Las claves (base de datos de AWS, etc.) van en el archivo .env de la raíz del
+# repositorio, que git ignora. La plantilla es .env.ejemplo.
+_cargar_env(RAIZ_PROYECTO / '.env')
+
+
 def _env_bool(nombre, defecto):
     valor = os.environ.get(nombre)
     if valor is None:
@@ -94,19 +118,31 @@ WSGI_APPLICATION = 'Zentry.wsgi.application'
 
 # Base de datos ----------------------------------------------------------------
 # SQLite mientras se desarrolla. Para usar PostgreSQL en Amazon RDS basta con
-# definir ZENTRY_DB_ENGINE=postgresql y las variables ZENTRY_DB_* (y instalar
-# psycopg); el código no cambia porque todo pasa por el ORM.
+# definir ZENTRY_DB_ENGINE=postgresql y las variables ZENTRY_DB_* en el .env;
+# el código no cambia porque todo pasa por el ORM.
+# Con ZENTRY_DB_SECRETO (ARN del secreto de RDS) la contraseña no se escribe en
+# ningún lado: el motor Zentry/bd_aws se la pide a AWS Secrets Manager.
 
 if os.environ.get('ZENTRY_DB_ENGINE', 'sqlite').lower() == 'postgresql':
+    _SECRETO_BD = os.environ.get('ZENTRY_DB_SECRETO', '')
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.postgresql',
+            'ENGINE': 'Zentry.bd_aws' if _SECRETO_BD else 'django.db.backends.postgresql',
+            'SECRETO_AWS': _SECRETO_BD,
             'NAME': os.environ.get('ZENTRY_DB_NAME', 'zentry'),
             'USER': os.environ.get('ZENTRY_DB_USER', 'zentry'),
             'PASSWORD': os.environ.get('ZENTRY_DB_PASSWORD', ''),
             'HOST': os.environ.get('ZENTRY_DB_HOST', 'localhost'),
             'PORT': os.environ.get('ZENTRY_DB_PORT', '5432'),
             'CONN_MAX_AGE': 60,
+            # La base está en internet: se revisa la conexión antes de reusarla.
+            'CONN_HEALTH_CHECKS': True,
+            'OPTIONS': {
+                # Amazon RDS pide conexión cifrada (ZENTRY_DB_SSLMODE=require en el .env).
+                'sslmode': os.environ.get('ZENTRY_DB_SSLMODE', 'prefer'),
+                # Si la base no responde (p. ej. cambió la IP de la casa), falla en 10 s.
+                'connect_timeout': 10,
+            },
         }
     }
 else:
@@ -172,7 +208,7 @@ REST_FRAMEWORK = {
 # Correo -----------------------------------------------------------------------
 
 # Zentry no envía correos con Django (los avisos van por el puerto de notificación:
-# consola, SNS o SES). En desarrollo cualquier correo se muestra en la terminal.
+# consola, SMS o SES). En desarrollo cualquier correo se muestra en la terminal.
 MAILERS = {
     'default': {
         'BACKEND': os.environ.get('ZENTRY_EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend'
@@ -197,8 +233,9 @@ LOGGING = {
 
 ZENTRY = {
     # Puertos y adaptadores (Tarea 5): qué implementación usa cada puerto.
-    # Producción: 'alertas.adaptadores.EvidenciaS3' y 'alertas.adaptadores.NotificacionSES'
-    # (o NotificacionSNS), con las variables ZENTRY_S3_BUCKET, ZENTRY_SNS_TOPIC, etc.
+    # Producción: 'alertas.adaptadores.EvidenciaS3' (ZENTRY_S3_BUCKET) y
+    # 'alertas.adaptadores.NotificacionSMS' (ZENTRY_SMS_DESTINOS; cuesta, va apagado) o
+    # 'alertas.adaptadores.NotificacionSES' (correo de RF-13: ZENTRY_SES_ORIGEN, ZENTRY_SES_DESTINOS).
     'EVIDENCIA': os.environ.get('ZENTRY_EVIDENCIA', 'alertas.adaptadores.EvidenciaLocal'),
     'NOTIFICACION': os.environ.get('ZENTRY_NOTIFICACION', 'alertas.adaptadores.NotificacionConsola'),
 
